@@ -1,0 +1,26 @@
+services:
+  init:
+    image: busybox
+    command: echo "homelab and macvlan networks ready"
+    networks:
+      - homelab
+      - macvlan
+
+networks:
+  homelab:
+    name: homelab
+    driver: bridge
+
+  # Macvlan gives containers a real IP on your LAN.
+  # Used by NPM so it owns 192.168.1.200:80/443/81 without conflicting with the host.
+  # Reserve 192.168.1.200 in your router DHCP to avoid address conflicts.
+  macvlan:
+    name: macvlan
+    driver: macvlan
+    driver_opts:
+      parent: eth0       # Host interface connected to your LAN
+    ipam:
+      config:
+        - subnet: 192.168.1.0/24
+          gateway: 192.168.1.1
+          ip_range: 192.168.1.200/29  # Docker assigns only from .200-.207

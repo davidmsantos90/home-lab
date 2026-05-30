@@ -1,0 +1,91 @@
+configs:
+  ts-serve:
+    content: |
+      {"TCP":{"443":{"HTTPS":true}},
+      "Web":{"$${TS_CERT_DOMAIN}:443":
+          {"Handlers":{"/":
+          {"Proxy":"http://127.0.0.1:81"}}}},
+      "AllowFunnel":{"$${TS_CERT_DOMAIN}:443":false}}
+
+services:
+  # Tailscale Sidecar Configuration
+  # NPM app (via network_mode) handles ports 80, 443, and 81.
+  # Tailscale Serve exposes the admin UI (port 81) on the Tailnet.
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale-${SERVICE}
+    hostname: ${SERVICE}
+    
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_SERVE_CONFIG=/config/serve.json
+      - TS_USERSPACE=false
+      - TS_ENABLE_HEALTH_CHECK=true
+      - TS_LOCAL_ADDR_PORT=127.0.0.1:41234
+      - TS_AUTH_ONCE=true
+    
+    configs:
+      - source: ts-serve
+        target: /config/serve.json
+    
+    volumes:
+      - ./ts/config:/config
+      - ./ts/state:/var/lib/tailscale
+    
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    
+    cap_add:
+      - net_admin
+    
+    # No ports: block needed — macvlan gives this container a real LAN IP (192.168.1.200)
+
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    networks:
+      default: {}
+      homelab: {}                    # Reach other services for proxying
+      macvlan:                       # No ports: needed — macvlan gives this container a real LAN IP
+        ipv4_address: ${NPM_IP}      # Static LAN IP — reserve this in your router
+    
+    restart: unless-stopped
+
+  # Nginx Proxy Manager
+  application:
+    image: ${IMAGE_URL}
+    network_mode: service:tailscale
+    container_name: app-${SERVICE}
+    
+    environment:
+      - TZ=${TZ}
+    
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
+    
+    depends_on:
+      tailscale:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD", "/usr/bin/check-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s  # NPM needs time to initialise its DB on first run
+    
+    restart: unless-stopped
+
+networks:
+  default:
+    name: npm_internal
+  homelab:
+    external: true
+  macvlan:
+    external: true
