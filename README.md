@@ -4,6 +4,35 @@ Self-hosted services running in Docker, each accessible via [Tailscale](https://
 
 Follows the [ScaleTail](https://github.com/tailscale-dev/ScaleTail) sidecar pattern: every service gets a dedicated Tailscale container that handles Tailnet connectivity, and a shared `homelab` Docker network lets Nginx Proxy Manager route local traffic to all services.
 
+## Project structure
+
+```
+home-lab/
+├── compose.yaml               # Creates shared homelab + macvlan networks
+├── nginx-proxy-manager/
+│   ├── compose.yaml
+│   └── .env
+├── pihole/
+│   ├── compose.yaml
+│   └── .env
+├── immich/
+│   ├── compose.yaml
+│   └── .env
+├── portainer/
+│   ├── compose.yaml
+│   └── .env
+├── deluge/
+│   ├── compose.yaml
+│   └── .env
+├── plex/
+│   ├── compose.yaml
+│   └── .env
+├── jellyfin/
+│   ├── compose.yaml
+│   ├── .env
+│   └── README.md
+```
+
 ## Services
 
 | Service | Local port(s) | Tailnet URL |
@@ -13,7 +42,8 @@ Follows the [ScaleTail](https://github.com/tailscale-dev/ScaleTail) sidecar patt
 | **Portainer** | `9000` | `https://portainer.<tailnet>.ts.net` |
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
-| **Nginx Proxy Manager** | `192.168.1.200` (LAN IP via macvlan) | `https://nginx-proxy-manager.<tailnet>.ts.net` |
+| **Jellyfin** | `8096` | `https://jellyfin.<tailnet>.ts.net` |
+| **Nginx Proxy Manager** | `192.168.1.5` (LAN IP via macvlan) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
 
 ## Prerequisites
 
@@ -22,15 +52,15 @@ Follows the [ScaleTail](https://github.com/tailscale-dev/ScaleTail) sidecar patt
 
 ## Quick Start
 
-### 1. Create the shared Docker network
+### 1. Create the shared Docker networks
 
-Run the root compose file once to create the `homelab` bridge network:
+Run the root compose file once to create the `homelab` bridge and `macvlan` networks:
 
 ```bash
 docker compose up
 ```
 
-The `init` container prints a confirmation and exits. The `homelab` network persists and is used by all services.
+The `init` container prints a confirmation and exits. Both networks persist and are used by all services.
 
 ### 2. Get a Tailscale Auth Key
 
@@ -38,10 +68,15 @@ Go to [Tailscale Admin → Keys](https://login.tailscale.com/admin/settings/keys
 
 ### 3. Configure and start each service
 
-For each service (start with **nginx-proxy-manager** first, then the rest):
+Start **nginx-proxy-manager** first (it needs the macvlan network), then the rest in any order:
 
 ```bash
-cd services/<service-name>
+cd nginx-proxy-manager
+# Edit .env — set TS_AUTHKEY, TZ, and verify NPM_IP matches your macvlan range
+docker compose up -d
+
+# Then for each other service:
+cd ../pihole   # (or immich, portainer, deluge, plex)
 # Edit .env — at minimum set TS_AUTHKEY and TZ
 docker compose up -d
 ```
@@ -82,27 +117,33 @@ Every service uses the **Tailscale sidecar pattern**: the app container has no n
 
 Result: any device on your Tailnet can reach `https://immich.<tailnet>.ts.net` directly.
 
-### Local access — two options
+### Local access
 
 Because the Tailscale container has `ports:` bound to `0.0.0.0` on the host, you can access services **directly by IP+port** without Tailscale and without NPM:
 
 | Service | Direct local URL |
 |---|---|
-| Pi-hole admin | `http://<host-ip>:80/admin` |
+| Pi-hole admin | `http://<host-ip>:8080/admin` |
 | Immich | `http://<host-ip>:2283` |
 | Portainer | `http://<host-ip>:9000` |
 | Deluge | `http://<host-ip>:8112` |
-| NPM admin | `http://<host-ip>:81` |
+| NPM admin | `http://192.168.1.5:81` |
 
-You can **also** route through NPM for nicer local domains (e.g. `http://immich.home`). NPM reaches services via the shared `homelab` Docker network using the Tailscale container name as the upstream hostname — because the app container shares that network namespace, it's reachable there too.
+You can **also** route through NPM using your DuckDNS subdomains for a consistent URL across LAN and Tailnet (see NPM section below).
 
 | Access method | Example | Needs Tailscale? | Needs NPM? |
 |---|---|---|---|
 | Direct IP + port | `http://192.168.1.10:2283` | ❌ | ❌ |
-| Local domain via NPM | `http://immich.home` | ❌ | ✅ |
-| Tailnet | `https://immich.yourtailnet.ts.net` | ✅ | ❌ |
+| Local domain via NPM | `https://immich.pimlicoa.duckdns.org` | ❌ | ✅ |
+| Tailnet | `https://immich.<tailnet>.ts.net` | ✅ | ❌ |
 
-## Nginx Proxy Manager — upstream targets
+## Nginx Proxy Manager
+
+NPM lives on a **macvlan** network, giving it a dedicated LAN IP (`192.168.1.5`) so it can own ports 80/443 without conflicting with the host. It is also on the `homelab` bridge to reach other services.
+
+> **Note on Tailscale Serve**: NPM's Tailscale sidecar intentionally has no `TS_SERVE_CONFIG` — Tailscale Serve would claim port 443, conflicting with NPM's own HTTPS listener. Access NPM's admin UI on the Tailnet via its raw Tailscale IP: `http://<tailscale-ip>:81` (run `tailscale ip -4` on the host).
+
+### NPM upstream targets
 
 When adding proxy hosts in NPM, use the Tailscale container name as the upstream (reachable via the `homelab` Docker network):
 
@@ -113,38 +154,59 @@ When adding proxy hosts in NPM, use the Tailscale container name as the upstream
 | Portainer | `tailscale-portainer` | `9000` |
 | Deluge | `tailscale-deluge` | `8112` |
 | Plex | `tailscale-plex` | `32400` |
+| Jellyfin | `tailscale-jellyfin` | `8096` |
+
+For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — macvlan containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
+
+| Service (on host) | NPM upstream host | NPM upstream port |
+|---|---|---|
+| Plex | `192.168.100.1` | `32400` |
+
+The gateway is pinned to `192.168.100.1` by the subnet in `compose.yaml`. Once a service is migrated to Docker, switch its upstream to the container name.
+
+### Consistent URLs across LAN and Tailnet
+
+With Pi-hole as DNS for both LAN and Tailnet, you can use the same subdomain everywhere:
+
+1. **Pi-hole** → Local DNS → DNS Records: add one A record pointing your domain to NPM's IP:
+   ```
+   pimlicoa.duckdns.org → 192.168.1.5
+   ```
+2. Add CNAME records for each subdomain pointing to the root:
+   ```
+   immich.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
+   portainer.pimlicoa.duckdns.org → pimlicoa.duckdns.org
+   pihole.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
+   deluge.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
+   npm.pimlicoa.duckdns.org       → pimlicoa.duckdns.org
+   ```
+3. **NPM**: add a proxy host for each subdomain, using the wildcard cert (`*.pimlicoa.duckdns.org`).
 
 NPM default credentials (change on first login):
 - **Email**: `admin@example.com`
 - **Password**: `changeme`
 
-### NPM → host machine (macvlan workaround)
-
-Macvlan containers **cannot reach the host's IP directly** (kernel limitation). To proxy to services still running on the host (e.g. Deluge and Plex before migration), you need to create a macvlan bridge interface on the host itself.
-
-A systemd unit is provided at `host/macvlan-host.service`. Install it once:
-
-```bash
-sudo cp host/macvlan-host.service /etc/systemd/system/
-sudo systemctl enable --now macvlan-host.service
-```
-
-This gives the host a reachable alias IP (`192.168.1.201`) from inside the macvlan network. After this, use the following upstreams in NPM for host-running services:
-
-| Service (on host) | NPM upstream host | NPM upstream port |
-|---|---|---|
-| Deluge (host) | `192.168.1.201` | `8112` |
-| Plex (host) | `192.168.1.201` | `32400` |
-
-Once you migrate a service to Docker, switch its upstream to the Tailscale container name (e.g. `tailscale-deluge:8112`) and the host IP is no longer needed for that service.
-
 ## Network architecture
 
-Each service's `compose.yaml` defines two networks:
-- A **private internal network** (e.g. `immich_internal`) for intra-service communication (immich ↔ postgres ↔ redis). App containers like postgres and redis only join this network — they are not reachable from outside.
-- The shared **`homelab` external network** attached to the Tailscale sidecar, making the service reachable by NPM.
+```
+┌─────────────────────────────────────────────────┐
+│  homelab bridge (192.168.100.0/24)              │
+│  gateway: 192.168.100.1 (host)                  │
+│                                                  │
+│  tailscale-pihole, tailscale-immich,            │
+│  tailscale-portainer, tailscale-deluge,         │
+│  tailscale-plex, tailscale-npm (NPM sidecar)    │
+└─────────────────────────────────────────────────┘
 
-Because app containers use `network_mode: service:tailscale`, they share the Tailscale container's network namespace and are reachable at the Tailscale container's name on the `homelab` network.
+┌─────────────────────────────────────────────────┐
+│  macvlan (192.168.1.0/24, range .4-.7)          │
+│  parent: eth0                                    │
+│                                                  │
+│  tailscale-npm → 192.168.1.5                    │
+└─────────────────────────────────────────────────┘
+```
+
+Each service's `compose.yaml` also defines a **private internal network** (e.g. `immich_internal`) for intra-service communication (immich ↔ postgres ↔ redis). Those containers are not reachable from outside.
 
 ## Migrating Deluge and Plex from host to Docker
 
@@ -163,9 +225,6 @@ cat ~/.config/deluge/core.conf | grep download_location
 # Plex metadata/config
 ls "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/"
 ls ~/.local/share/plex/        # alternative location
-
-# Plex media libraries — check Plex settings or:
-cat "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Preferences.xml"
 ```
 
 ### Migrate Deluge
@@ -176,7 +235,7 @@ cat "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Pref
    sudo systemctl disable deluged deluge-web
    ```
 
-2. **Update `services/deluge/.env`** with your actual paths:
+2. **Update `deluge/.env`** with your actual paths:
    ```env
    DELUGE_CONFIG_PATH=/home/pi/.config/deluge
    DOWNLOADS_PATH=/home/pi/Downloads
@@ -184,7 +243,7 @@ cat "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Pref
 
 3. **Start the Docker stack** — it mounts your existing config and downloads directly:
    ```bash
-   cd services/deluge
+   cd deluge
    docker compose up -d
    ```
 
@@ -201,7 +260,7 @@ cat "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Pref
 2. **Get a Plex claim token** (valid for 4 minutes, only needed on first start):
    Visit https://plex.tv/claim and copy the token.
 
-3. **Update `services/plex/.env`** with your actual paths and claim token:
+3. **Update `plex/.env`** with your actual paths and claim token:
    ```env
    PLEX_CONFIG_PATH=/var/lib/plexmediaserver/Library/Application Support/Plex Media Server
    PLEX_MEDIA_PATH=/home/pi/media
@@ -210,31 +269,31 @@ cat "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/Pref
 
 4. **Start the Docker stack**:
    ```bash
-   cd services/plex
+   cd plex
    docker compose up -d
    ```
 
-5. Verify at `http://<host-ip>:32400/web` — your libraries, metadata, and watch history should all be present since the config directory is reused directly.
+5. Verify at `http://<host-ip>:32400/web` — libraries, metadata, and watch history should all be present.
 
-> **Note**: The `PUID`/`PGID` in the compose (default `1000`) must match the owner of your existing config files. Check with `ls -la ~/.config/deluge` or `ls -la /var/lib/plexmediaserver`.
+> **Note**: `PUID`/`PGID` (default `1000`) must match the owner of your existing config files. Check with `ls -la ~/.config/deluge` or `ls -la /var/lib/plexmediaserver`.
 
 ## Updating services
 
 ```bash
-cd services/<service-name>
+cd <service-name>
 docker compose pull
 docker compose up -d
 ```
 
 ## Secrets reminder
 
-- `PIHOLE_WEBPASSWORD` in `services/pihole/.env`
-- `DB_PASSWORD` in `services/immich/.env`
+- `PIHOLE_WEBPASSWORD` in `pihole/.env`
+- `DB_PASSWORD` in `immich/.env`
 - `TS_AUTHKEY` in every `.env` file
 
 Do **not** commit `.env` files to version control. Add them to `.gitignore`:
 
 ```bash
-echo "services/**/.env" >> .gitignore
-echo "services/**/ts/" >> .gitignore
+echo "**/.env" >> .gitignore
+echo "**/ts/" >> .gitignore
 ```
