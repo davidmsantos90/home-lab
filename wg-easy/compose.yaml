@@ -1,0 +1,77 @@
+configs:
+  ts-serve:
+    content: |
+      {"TCP":{"443":{"HTTPS":true}},
+      "Web":{"$${TS_CERT_DOMAIN}:443":
+          {"Handlers":{"/":
+          {"Proxy":"http://127.0.0.1:51821"}}}},
+      "AllowFunnel":{"$${TS_CERT_DOMAIN}:443":false}}
+
+services:
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: duckdns-wg-easy
+    environment:
+      TZ: ${TZ}
+      SUBDOMAINS: pimlicoa
+      TOKEN: ${DUCKDNS_TOKEN}
+      LOG_FILE: "false"
+    restart: unless-stopped
+
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale-wg-easy
+    hostname: wg-easy
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "false"
+      TS_ENABLE_HEALTH_CHECK: "true"
+      TS_LOCAL_ADDR_PORT: 127.0.0.1:41234
+      TS_AUTH_ONCE: "true"
+    configs:
+      - source: ts-serve
+        target: /config/serve.json
+    volumes:
+      - ./ts/config:/config
+      - ./ts/state:/var/lib/tailscale
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "51820:51820/udp"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
+      interval: 1m
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wg-easy
+    network_mode: service:tailscale
+    environment:
+      INSECURE: "true"
+      DISABLE_IPV6: "true"
+      INIT_ENABLED: "true"
+      INIT_USERNAME: ${WG_EASY_ADMIN_USERNAME}
+      INIT_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
+      INIT_HOST: pimlicoa.duckdns.org
+      INIT_PORT: "51820"
+    volumes:
+      - ./data:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      net.ipv4.ip_forward: "1"
+      net.ipv4.conf.all.src_valid_mark: "1"
+    depends_on:
+      tailscale:
+        condition: service_healthy
+    restart: unless-stopped

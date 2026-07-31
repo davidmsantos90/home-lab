@@ -44,6 +44,7 @@ home-lab/
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
 | **Jellyfin** | `8096` | `https://jellyfin.<tailnet>.ts.net` |
 | **Nginx Proxy Manager** | `192.168.1.5` (LAN IP via macvlan) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
+| **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
 
 ## Prerequisites
 
@@ -93,6 +94,30 @@ sudo systemctl restart systemd-resolved
 # Verify port 53 is free
 sudo ss -tulnp | grep :53
 ```
+
+### 5. WireGuard access with wg-easy
+
+[`wg-easy/compose.yaml`](wg-easy/compose.yaml) provides WireGuard access for devices that cannot use Tailscale. Its DuckDNS companion updates `pimlicoa.duckdns.org` with the home connection's public IPv4 address, and wg-easy creates client profiles using that hostname.
+
+1. In DuckDNS, confirm that the `pimlicoa` subdomain exists and copy its token.
+2. Create the local environment file and set a long, unique admin password:
+
+   ```bash
+   cd wg-easy
+   cp .env.example .env
+   chmod 600 .env
+   ```
+
+3. Forward **UDP 51820** on the router to this Docker host's LAN IP. Do not forward TCP 51821.
+4. Start the stack:
+
+   ```bash
+   docker compose up -d
+   ```
+
+5. Open `https://wg-easy.<tailnet>.ts.net` from a device on the Tailnet, sign in with the credentials in `.env`, and create a client profile. The service name can be changed in [`wg-easy/compose.yaml`](wg-easy/compose.yaml) by changing the Tailscale sidecar's `hostname`.
+
+The Tailscale sidecar uses Tailscale Serve to provide the UI over private Tailnet HTTPS; its Funnel setting is disabled. The only public service is the authenticated WireGuard UDP endpoint. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
 
 ## How access works
 
@@ -290,6 +315,7 @@ docker compose up -d
 - `PIHOLE_WEBPASSWORD` in `pihole/.env`
 - `DB_PASSWORD` in `immich/.env`
 - `TS_AUTHKEY` in every `.env` file
+- `DUCKDNS_TOKEN`, `TS_AUTHKEY`, and `WG_EASY_ADMIN_PASSWORD` in `wg-easy/.env`
 
 Do **not** commit `.env` files to version control. Add them to `.gitignore`:
 
