@@ -117,13 +117,20 @@ sudo ss -tulnp | grep :53
    docker compose up -d
    ```
 
-5. Open `https://wg-easy.<tailnet>.ts.net` from a device on the Tailnet, sign in with the credentials in `.env`, and create a client profile. The service name can be changed in [`wg-easy/compose.yaml`](wg-easy/compose.yaml) by changing the Tailscale sidecar's `hostname`.
+5. Open `https://wg-easy.<tailnet>.ts.net` from a device on the Tailnet, sign in with the credentials in `.env`, and create a client profile. The service name can be changed in [`wg-easy/compose.yaml`](wg-easy/compose.yaml) by changing the Tailscale container `hostname`.
 
-The Tailscale sidecar uses Tailscale Serve to provide the UI over private Tailnet HTTPS; its Funnel setting is disabled. The only public service is the authenticated WireGuard UDP endpoint. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
+In this stack, `wg-easy` and `tailscale` run as independent containers (no shared network namespace), and both attach to `homelab`. Tailscale Serve proxies to `wg-easy` over Docker networking with Funnel disabled. The only public service is the authenticated WireGuard UDP endpoint. The web UI is also available locally at `http://127.0.0.1:51821` on the host when needed. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
+
+If you previously ran an older `wg-easy` compose with a different internal network label and get a Docker network label mismatch error, remove the stale network once and start again:
+
+```bash
+docker network rm wg_easy_internal || true
+docker compose up -d
+```
 
 ## How access works
 
-Every service uses the **Tailscale sidecar pattern**: the app container has no network stack of its own — it uses `network_mode: service:tailscale` to share the Tailscale container's network namespace. This means any port the app binds to (e.g. immich on `:2283`) is actually bound inside the Tailscale container.
+Most services use the **Tailscale sidecar pattern**: the app container has no network stack of its own — it uses `network_mode: service:tailscale` to share the Tailscale container's network namespace. This means any port the app binds to (e.g. immich on `:2283`) is actually bound inside the Tailscale container.
 
 ```
 ┌──────────────────────────────────────────────────────┐
