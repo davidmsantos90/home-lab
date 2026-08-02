@@ -108,6 +108,8 @@ sudo ss -tulnp | grep :53
    chmod 600 .env
    ```
 
+   `WG_EASY_HOST` defaults to `pimlicoa.duckdns.org`, but you can change it in `.env` if you point DuckDNS somewhere else.
+
 3. Forward **UDP 51820** on the router to this Docker host's LAN IP. Do not forward TCP 51821.
 4. Start the stack:
 
@@ -310,12 +312,22 @@ docker compose pull
 docker compose up -d
 ```
 
+## Syncing environment files to the Raspberry Pi
+
+To copy every local `.env` file to the matching service directory on `pi@little-pi4`, run:
+
+```bash
+./sync-env.sh
+```
+
+The script preserves paths relative to this repository, creates the destination repository directory if necessary, and sets copied `.env` files to owner-read/write permissions on the Raspberry Pi. It does not delete remote files.
+
 ## Secrets reminder
 
 - `PIHOLE_WEBPASSWORD` in `pihole/.env`
 - `DB_PASSWORD` in `immich/.env`
 - `TS_AUTHKEY` in every `.env` file
-- `DUCKDNS_TOKEN`, `TS_AUTHKEY`, and `WG_EASY_ADMIN_PASSWORD` in `wg-easy/.env`
+- `DUCKDNS_TOKEN`, `TS_AUTHKEY`, `WG_EASY_HOST`, and `WG_EASY_ADMIN_PASSWORD` in `wg-easy/.env`
 
 Do **not** commit `.env` files to version control. Add them to `.gitignore`:
 
