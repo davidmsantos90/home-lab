@@ -62,6 +62,7 @@ services:
       INIT_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
       INIT_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
       INIT_PORT: "51820"
+      INIT_ALLOWED_IPS: ${WG_ALLOWED_IPS:-10.200.0.0/24}
     volumes:
       - ./data:/etc/wireguard
       - /lib/modules:/lib/modules:ro
@@ -83,6 +84,30 @@ services:
     networks:
       - wg_easy_internal
       - homelab
+    restart: unless-stopped
+
+  wg-overlap-fix:
+    image: alpine:3.22
+    container_name: wg-overlap-fix
+    network_mode: service:wg-easy
+    environment:
+      HOME_LAN_SUBNET: ${HOME_LAN_SUBNET:-192.168.1.0/24}
+      WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}
+    cap_add:
+      - NET_ADMIN
+    depends_on:
+      wg-easy:
+        condition: service_healthy
+    command: >
+      /bin/sh -ceu '
+      apk add --no-cache iptables >/dev/null;
+      until ip link show wg0 >/dev/null 2>&1; do sleep 2; done;
+      iptables -t nat -C PREROUTING -i wg0 -d "$WG_TRANSLATED_LAN_SUBNET" -j NETMAP --to "$HOME_LAN_SUBNET" || iptables -t nat -A PREROUTING -i wg0 -d "$WG_TRANSLATED_LAN_SUBNET" -j NETMAP --to "$HOME_LAN_SUBNET";
+      iptables -t nat -C POSTROUTING -o wg0 -s "$HOME_LAN_SUBNET" -j NETMAP --to "$WG_TRANSLATED_LAN_SUBNET" || iptables -t nat -A POSTROUTING -o wg0 -s "$HOME_LAN_SUBNET" -j NETMAP --to "$WG_TRANSLATED_LAN_SUBNET";
+      iptables -C FORWARD -i wg0 -d "$HOME_LAN_SUBNET" -j ACCEPT || iptables -A FORWARD -i wg0 -d "$HOME_LAN_SUBNET" -j ACCEPT;
+      iptables -C FORWARD -o wg0 -s "$HOME_LAN_SUBNET" -j ACCEPT || iptables -A FORWARD -o wg0 -s "$HOME_LAN_SUBNET" -j ACCEPT;
+      tail -f /dev/null
+      '
     restart: unless-stopped
 
 networks:
