@@ -87,7 +87,7 @@ services:
     restart: unless-stopped
 
   wg-overlap-fix:
-    image: alpine:3.22
+    image: ghcr.io/wg-easy/wg-easy:15
     container_name: wg-overlap-fix
     network_mode: service:wg-easy
     environment:
@@ -95,18 +95,37 @@ services:
       WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}
     cap_add:
       - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - /lib/modules:/lib/modules:ro
     depends_on:
       wg-easy:
         condition: service_healthy
     command: >
       /bin/sh -ceu '
-      apk add --no-cache iptables >/dev/null;
-      until ip link show wg0 >/dev/null 2>&1; do sleep 2; done;
-      iptables -t nat -C PREROUTING -i wg0 -d "$WG_TRANSLATED_LAN_SUBNET" -j NETMAP --to "$HOME_LAN_SUBNET" || iptables -t nat -A PREROUTING -i wg0 -d "$WG_TRANSLATED_LAN_SUBNET" -j NETMAP --to "$HOME_LAN_SUBNET";
-      iptables -t nat -C POSTROUTING -o wg0 -s "$HOME_LAN_SUBNET" -j NETMAP --to "$WG_TRANSLATED_LAN_SUBNET" || iptables -t nat -A POSTROUTING -o wg0 -s "$HOME_LAN_SUBNET" -j NETMAP --to "$WG_TRANSLATED_LAN_SUBNET";
-      iptables -C FORWARD -i wg0 -d "$HOME_LAN_SUBNET" -j ACCEPT || iptables -A FORWARD -i wg0 -d "$HOME_LAN_SUBNET" -j ACCEPT;
-      iptables -C FORWARD -o wg0 -s "$HOME_LAN_SUBNET" -j ACCEPT || iptables -A FORWARD -o wg0 -s "$HOME_LAN_SUBNET" -j ACCEPT;
-      tail -f /dev/null
+      echo "[wg-overlap-fix] waiting for wg0";
+      until [ -d /sys/class/net/wg0 ]; do sleep 2; done;
+      modprobe iptable_nat 2>/dev/null || true;
+      modprobe xt_NETMAP 2>/dev/null || true;
+      if ! iptables -w -t nat -j NETMAP -h >/dev/null 2>&1; then
+        echo "[wg-overlap-fix] NETMAP target is unavailable on this host/kernel";
+        exit 1;
+      fi;
+      echo "[wg-overlap-fix] applying overlap rules";
+      if ! iptables -w -t nat -C PREROUTING -i wg0 -d "$$WG_TRANSLATED_LAN_SUBNET" -j NETMAP --to "$$HOME_LAN_SUBNET" 2>/dev/null; then
+        iptables -w -t nat -A PREROUTING -i wg0 -d "$$WG_TRANSLATED_LAN_SUBNET" -j NETMAP --to "$$HOME_LAN_SUBNET";
+      fi;
+      if ! iptables -w -t nat -C POSTROUTING -o wg0 -s "$$HOME_LAN_SUBNET" -j NETMAP --to "$$WG_TRANSLATED_LAN_SUBNET" 2>/dev/null; then
+        iptables -w -t nat -A POSTROUTING -o wg0 -s "$$HOME_LAN_SUBNET" -j NETMAP --to "$$WG_TRANSLATED_LAN_SUBNET";
+      fi;
+      if ! iptables -w -C FORWARD -i wg0 -d "$$HOME_LAN_SUBNET" -j ACCEPT 2>/dev/null; then
+        iptables -w -A FORWARD -i wg0 -d "$$HOME_LAN_SUBNET" -j ACCEPT;
+      fi;
+      if ! iptables -w -C FORWARD -o wg0 -s "$$HOME_LAN_SUBNET" -j ACCEPT 2>/dev/null; then
+        iptables -w -A FORWARD -o wg0 -s "$$HOME_LAN_SUBNET" -j ACCEPT;
+      fi;
+      echo "[wg-overlap-fix] overlap rules active";
+      exec tail -f /dev/null
       '
     restart: unless-stopped
 
