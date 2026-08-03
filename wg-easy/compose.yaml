@@ -62,6 +62,12 @@ services:
       INIT_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
       INIT_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
       INIT_PORT: "51820"
+      WG_POST_UP: |
+        DEFAULT_IF=$$(ip route show default | awk '{print $$5}' | head -n1)
+        iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$$DEFAULT_IF" -j MASQUERADE
+      WG_PRE_DOWN: |
+        DEFAULT_IF=$$(ip route show default | awk '{print $$5}' | head -n1)
+        iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o "$$DEFAULT_IF" -j MASQUERADE
     volumes:
       - ./data:/etc/wireguard
       - /lib/modules:/lib/modules:ro
