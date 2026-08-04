@@ -267,3 +267,13 @@ When implementing this RFC:
 - Prefer maintainable solutions over clever solutions.
 
 Do not modify the LAN addressing unless explicitly requested.
+
+---
+
+### DNS considerations
+
+When using a translated LAN subnet (e.g. `10.200.0.0/24`), VPN clients should use the translated address of the DNS server (e.g. `10.200.0.53`) instead of its physical LAN address (`192.168.1.53`).
+
+The translation layer must transparently forward DNS traffic to the real Pi-hole instance.
+
+No additional Pi-hole configuration should be required for basic DNS resolution.

@@ -62,12 +62,9 @@ services:
       INIT_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
       INIT_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
       INIT_PORT: "51820"
-      WG_POST_UP: |
-        DEFAULT_IF=$$(ip route show default | awk '{print $$5}' | head -n1)
-        iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$$DEFAULT_IF" -j MASQUERADE
-      WG_PRE_DOWN: |
-        DEFAULT_IF=$$(ip route show default | awk '{print $$5}' | head -n1)
-        iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o "$$DEFAULT_IF" -j MASQUERADE
+      # RFC-001: Overlap subnet translation
+      HOME_LAN_SUBNET: ${HOME_LAN_SUBNET:-192.168.1.0/24}
+      WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}
     volumes:
       - ./data:/etc/wireguard
       - /lib/modules:/lib/modules:ro
@@ -90,6 +87,25 @@ services:
       - wg_easy_internal
       - homelab
     restart: unless-stopped
+
+  wg-easy-hooks-bootstrap:
+    image: curlimages/curl:8.9.1
+    container_name: wg-easy-hooks-bootstrap
+    depends_on:
+      wg-easy:
+        condition: service_healthy
+    environment:
+      WG_EASY_API_URL: http://wg-easy:51821
+      WG_EASY_ADMIN_USERNAME: ${WG_EASY_ADMIN_USERNAME}
+      WG_EASY_ADMIN_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
+      HOME_LAN_SUBNET: ${HOME_LAN_SUBNET:-192.168.1.0/24}
+      WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}
+    volumes:
+      - ./bootstrap-hooks.sh:/bootstrap-hooks.sh:ro
+    entrypoint: ["/bin/sh", "/bootstrap-hooks.sh"]
+    networks:
+      - wg_easy_internal
+    restart: "no"
 
 networks:
   wg_easy_internal:
