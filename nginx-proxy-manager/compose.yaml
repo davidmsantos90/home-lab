@@ -61,7 +61,8 @@ services:
     
     networks:
       default: {}
-      homelab: {}                    # Reach other services for proxying
+      homelab:
+        ipv4_address: 192.168.100.5    # Static homelab IP for wg-easy to reach via NETMAP
       macvlan:                       # No ports: needed — macvlan gives this container a real LAN IP
         ipv4_address: ${NPM_IP}      # Static LAN IP — reserve this in your router
     
