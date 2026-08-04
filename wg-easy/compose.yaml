@@ -62,6 +62,7 @@ services:
       INIT_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
       INIT_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
       INIT_PORT: "51820"
+      INIT_DNS: ${WG_VPN_DNS:-10.200.0.60}
       # RFC-001: Overlap subnet translation
       HOME_LAN_SUBNET: ${HOME_LAN_SUBNET:-192.168.1.0/24}
       WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}
@@ -100,6 +101,8 @@ services:
       WG_EASY_ADMIN_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
       HOME_LAN_SUBNET: ${HOME_LAN_SUBNET:-192.168.1.0/24}
       WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}
+      WG_VPN_DNS: ${WG_VPN_DNS:-10.200.0.60}
+      WG_VPN_ALLOWED_IPS: ${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}
     volumes:
       - ./bootstrap-hooks.sh:/bootstrap-hooks.sh:ro
     entrypoint: ["/bin/sh", "/bootstrap-hooks.sh"]

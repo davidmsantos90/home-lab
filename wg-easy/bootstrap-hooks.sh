@@ -4,6 +4,8 @@ set -eu
 WG_EASY_API_URL="${WG_EASY_API_URL:-http://wg-easy:51821}"
 HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
 WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
+WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.60}"
+WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}"
 
 if [ -z "${WG_EASY_ADMIN_USERNAME:-}" ] || [ -z "${WG_EASY_ADMIN_PASSWORD:-}" ]; then
   echo "WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD are required" >&2
@@ -50,4 +52,37 @@ curl -fsS \
   --data "$PAYLOAD" \
   "${WG_EASY_API_URL}/api/admin/hooks" >/dev/null
 
-echo "wg-easy hooks applied successfully"
+USERCONFIG="$(curl -fsS -H "Authorization: Basic $AUTH" "${WG_EASY_API_URL}/api/admin/userconfig")"
+
+allowed_ips_json='['
+OLD_IFS="$IFS"
+IFS=','
+for cidr in $WG_VPN_ALLOWED_IPS; do
+  trimmed="$(echo "$cidr" | sed 's/^ *//; s/ *$//')"
+  [ -z "$trimmed" ] && continue
+  if [ "$allowed_ips_json" != "[" ]; then
+    allowed_ips_json="${allowed_ips_json},"
+  fi
+  allowed_ips_json="${allowed_ips_json}\"${trimmed}\""
+done
+IFS="$OLD_IFS"
+allowed_ips_json="${allowed_ips_json}]"
+
+escape_sed_replacement() {
+  printf '%s' "$1" | sed 's/[\/&]/\\&/g'
+}
+
+DNS_REPL="$(escape_sed_replacement "\"defaultDns\":[\"${WG_VPN_DNS}\"]")"
+ALLOWED_REPL="$(escape_sed_replacement "\"defaultAllowedIps\":${allowed_ips_json}")"
+
+UPDATED_USERCONFIG="$(printf '%s' "$USERCONFIG" | sed -E \
+  "s|\"defaultDns\":\[[^]]*\]|${DNS_REPL}|; s|\"defaultAllowedIps\":\[[^]]*\]|${ALLOWED_REPL}|")"
+
+curl -fsS \
+  -X POST \
+  -H "Authorization: Basic $AUTH" \
+  -H "Content-Type: application/json" \
+  --data "$UPDATED_USERCONFIG" \
+  "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null
+
+echo "wg-easy hooks and VPN defaults applied successfully"

@@ -26,6 +26,8 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/wg-easy/.env.example
 - `WG_EASY_HOST` (defaults to `pimlicoa.duckdns.org`)
 - `WG_EASY_ADMIN_USERNAME`, `WG_EASY_ADMIN_PASSWORD`
 - `TZ`
+- `WG_VPN_DNS` (defaults to `10.200.0.60`) for new/updated WireGuard client DNS
+- `WG_VPN_ALLOWED_IPS` (defaults to `10.200.0.0/24,192.168.1.0/24`) for new/updated client routes
 
 ### RFC-001 Overlap Subnet Translation (Optional)
 
@@ -59,6 +61,12 @@ Check bootstrap result:
 ```bash
 docker logs wg-easy-hooks-bootstrap
 ```
+
+The bootstrap also updates wg-easy `userconfig` defaults:
+- `defaultDns` <- `WG_VPN_DNS`
+- `defaultAllowedIps` <- `WG_VPN_ALLOWED_IPS`
+
+This ensures fresh starts pick up VPN DNS/routing defaults without manual UI edits.
 
 ## Validation
 
@@ -137,6 +145,27 @@ Custom target:
 This exports:
 - effective `PreUp/PostUp/PreDown/PostDown` from live `wg0.conf`
 - current NAT table snapshot
+
+## WireGuard access to other homelab services
+
+From the compose files in this repository, WireGuard clients can reach services outside Tailnet when:
+- the service is bound on the host (`0.0.0.0:<port>`) or has a reachable LAN/macvlan IP
+- the relevant subnet/host is inside the client AllowedIPs
+
+With the current stack:
+- **Reachable over VPN**
+  - Pi-hole DNS: `<vpn-view-of-host>:53/tcp,53/udp`
+  - Pi-hole UI: `<vpn-view-of-host>:8080`
+  - Immich: `<vpn-view-of-host>:2283`
+  - Portainer: `<vpn-view-of-host>:9000`
+  - Deluge: `<vpn-view-of-host>:8112`, torrent `6881/tcp+udp`
+  - Plex: `<vpn-view-of-host>:32400`
+  - Jellyfin: `<vpn-view-of-host>:8096`
+  - NPM: `192.168.1.5` (or translated equivalent when overlapping)
+- **Not intended over VPN**
+  - wg-easy UI host bind is `127.0.0.1:51821` (Tailnet/local host only)
+
+For overlapping clients, use translated addresses in `WG_TRANSLATED_LAN_SUBNET` (for example `192.168.1.60 -> 10.200.0.60`).
 
 Important: if a client connected from a non-overlapping network (for example a
 hotspot) can handshake but still cannot ping the normal WireGuard/LAN addresses,
