@@ -42,7 +42,7 @@ echo "Authenticating with wg-easy..."
 curl -fsS -c "$COOKIES_FILE" \
   -X POST \
   -H "Content-Type: application/json" \
-  --data "{\"username\":\"$WG_EASY_ADMIN_USERNAME\",\"password\":\"$WG_EASY_ADMIN_PASSWORD\"}" \
+  --data "{\"username\":\"$WG_EASY_ADMIN_USERNAME\",\"password\":\"$WG_EASY_ADMIN_PASSWORD\",\"remember\":true}" \
   "${WG_EASY_API_URL}/api/session" >/dev/null
 
 # Verify authentication worked
