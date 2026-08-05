@@ -14,19 +14,18 @@ HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
 WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
 WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.60}"
 WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}"
+COOKIES_FILE="/tmp/wg-easy-cookies.txt"
 
 if [ -z "${WG_EASY_ADMIN_USERNAME:-}" ] || [ -z "${WG_EASY_ADMIN_PASSWORD:-}" ]; then
   echo "WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD are required" >&2
   exit 1
 fi
 
-AUTH="$(printf '%s:%s' "$WG_EASY_ADMIN_USERNAME" "$WG_EASY_ADMIN_PASSWORD" | base64 | tr -d '\n')"
-
 echo "Waiting for wg-easy API..."
 i=0
 until [ "$i" -ge 60 ]
 do
-  if curl -fsS -H "Authorization: Basic $AUTH" "${WG_EASY_API_URL}/api/admin/hooks" >/dev/null; then
+  if curl -fsS "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null 2>&1; then
     break
   fi
   i=$((i + 1))
@@ -38,9 +37,23 @@ if [ "$i" -ge 60 ]; then
   exit 1
 fi
 
+echo "Authenticating with wg-easy..."
+curl -fsS -c "$COOKIES_FILE" \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data "{\"username\":\"$WG_EASY_ADMIN_USERNAME\",\"password\":\"$WG_EASY_ADMIN_PASSWORD\"}" \
+  "${WG_EASY_API_URL}/api/session" >/dev/null
+
+# Verify authentication worked
+if ! curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null 2>&1; then
+  echo "Authentication failed. Check your WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD" >&2
+  rm -f "$COOKIES_FILE"
+  exit 1
+fi
+
 # Resolve dnsmasq container IP dynamically
 echo "Resolving dnsmasq container IP..."
-DNSMASQ_IP=$(docker inspect dnsmasq-wg-easy -f '{{.NetworkSettings.Networks.wg_easy_internal.IPAddress}}' 2>/dev/null || echo "")
+DNSMASQ_IP=$(docker inspect dnsmasq-wg-easy -f '{{.NetworkSettings.Networks.wg_easy_bridge.IPAddress}}' 2>/dev/null || echo "")
 if [ -z "$DNSMASQ_IP" ]; then
   echo "Warning: Could not resolve dnsmasq container IP, DNS interception may not work" >&2
   DNSMASQ_IP="127.0.0.1"
@@ -62,14 +75,13 @@ PAYLOAD="$(cat <<EOF
 EOF
 )"
 
-curl -fsS \
+curl -fsS -b "$COOKIES_FILE" \
   -X POST \
-  -H "Authorization: Basic $AUTH" \
   -H "Content-Type: application/json" \
   --data "$PAYLOAD" \
   "${WG_EASY_API_URL}/api/admin/hooks" >/dev/null
 
-USERCONFIG="$(curl -fsS -H "Authorization: Basic $AUTH" "${WG_EASY_API_URL}/api/admin/userconfig")"
+USERCONFIG="$(curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig")"
 
 allowed_ips_json='['
 OLD_IFS="$IFS"
@@ -95,11 +107,13 @@ ALLOWED_REPL="$(escape_sed_replacement "\"defaultAllowedIps\":${allowed_ips_json
 UPDATED_USERCONFIG="$(printf '%s' "$USERCONFIG" | sed -E \
   "s|\"defaultDns\":\[[^]]*\]|${DNS_REPL}|; s|\"defaultAllowedIps\":\[[^]]*\]|${ALLOWED_REPL}|")"
 
-curl -fsS \
+curl -fsS -b "$COOKIES_FILE" \
   -X POST \
-  -H "Authorization: Basic $AUTH" \
   -H "Content-Type: application/json" \
   --data "$UPDATED_USERCONFIG" \
   "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null
+
+# Cleanup
+rm -f "$COOKIES_FILE"
 
 echo "wg-easy hooks and VPN defaults applied successfully"
