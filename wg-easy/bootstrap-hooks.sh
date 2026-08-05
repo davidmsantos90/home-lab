@@ -1,6 +1,16 @@
 #!/usr/bin/env sh
 set -eu
 
+# Load .env file if it exists and credentials not already set
+if [ -z "${WG_EASY_ADMIN_USERNAME:-}" ] || [ -z "${WG_EASY_ADMIN_PASSWORD:-}" ]; then
+  if [ -f ".env" ]; then
+    # Source .env but only load WG_EASY variables (safe subset)
+    set +e
+    eval "$(grep '^WG_EASY_ADMIN_' .env)"
+    set -e
+  fi
+fi
+
 # Detect if running inside container or on host
 if [ -f "/.dockerenv" ]; then
   # Running inside container, use container name
@@ -18,6 +28,7 @@ COOKIES_FILE="/tmp/wg-easy-cookies.txt"
 
 if [ -z "${WG_EASY_ADMIN_USERNAME:-}" ] || [ -z "${WG_EASY_ADMIN_PASSWORD:-}" ]; then
   echo "WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD are required" >&2
+  echo "Set them as environment variables or in .env file" >&2
   exit 1
 fi
 
