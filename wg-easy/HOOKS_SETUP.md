@@ -191,7 +191,15 @@ curl -I https://192.168.1.5
 ### DNS not being intercepted (VPN client still gets 192.168.1.5)
 - Verify dnsmasq container is running: `docker ps | grep dnsmasq`
 - Verify DNS redirect rules: `docker exec wg-easy iptables -t nat -S | grep "5353"`
-- Check dnsmasq logs: `docker logs dnsmasq-wg-easy`
+- **Critical**: Check dnsmasq is listening on the container IP (not just localhost):
+  ```bash
+  docker exec dnsmasq-wg-easy netstat -tuln | grep 5353
+  ```
+  Should show `0.0.0.0:5353` or `:::5353`, NOT just `127.0.0.1:5353`
+- Check dnsmasq config: `docker exec dnsmasq-wg-easy cat /etc/dnsmasq.conf`
+  Must NOT have `listen-address=127.0.0.1` (remove or use `bind-interfaces=0`)
+- Verify VPN client DNS is set to VPN gateway (e.g., `10.200.0.1`), not directly to Pi-hole
+- Check dnsmasq logs: `docker logs dnsmasq-wg-easy | tail -20`
 
 ### NPM still unreachable from overlapping VPN clients
 - Verify DNAT/SNAT rules: `docker exec wg-easy iptables -t nat -S | grep "10.200.0.5"`
@@ -201,6 +209,55 @@ curl -I https://192.168.1.5
 ### Performance issues / slow DNS
 - Check dnsmasq cache size: `grep cache-size /path/to/wg-easy/dnsmasq.conf` (default: 150)
 - Monitor dnsmasq: `docker logs -f dnsmasq-wg-easy`
+
+## DNS Interception Setup Process
+
+### Step 1: Ensure dnsmasq is listening on all interfaces
+dnsmasq must listen on `0.0.0.0:5353` (all interfaces), not just `127.0.0.1`, because iptables DNAT redirects traffic to the container's network IP (e.g., `172.23.0.2`).
+
+**File**: [dnsmasq.conf](./dnsmasq.conf)
+```
+port=5353
+bind-interfaces=0
+```
+
+### Step 2: Apply iptables DNAT rules
+The bootstrap script applies DNS redirect rules in PostUp hook:
+```bash
+iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination 172.23.0.2:5353
+iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination 172.23.0.2:5353
+```
+
+These redirect DNS queries from VPN clients (via wg0) to dnsmasq container.
+
+### Step 3: Configure dnsmasq domain rewrites
+**File**: [dnsmasq.conf](./dnsmasq.conf)
+```
+address=/nginx.pimlicoa.duckdns.org/10.200.0.5
+```
+
+### Step 4: Set VPN client DNS to VPN gateway
+**Important**: VPN client must use VPN gateway as DNS (e.g., `10.200.0.1`), NOT Pi-hole directly.
+
+On your WireGuard config, set:
+```
+DNS = 10.200.0.1
+```
+
+This ensures queries go through wg0 where they can be intercepted.
+
+### Step 5: Verify DNS interception
+From VPN client:
+```bash
+nslookup nginx.pimlicoa.duckdns.org
+# Expected: Server: 10.200.0.1, Address: 10.200.0.5
+```
+
+From LAN client (should NOT be intercepted):
+```bash
+nslookup nginx.pimlicoa.duckdns.org
+# Expected: Server: 10.200.0.60, Address: 192.168.1.5
+```
 
 ## Customization
 
@@ -217,7 +274,10 @@ To modify subnet ranges or DNS domains:
    address=/another-domain.pimlicoa.duckdns.org/10.200.0.X
    ```
 
-3. Re-run bootstrap script or manually update hooks in web UI
+3. Restart services:
+   ```bash
+   docker compose restart dnsmasq-wg-easy wg-easy
+   ```
 
 ## References
 
