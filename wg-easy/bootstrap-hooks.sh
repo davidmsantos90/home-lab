@@ -25,7 +25,8 @@ echo "Waiting for wg-easy API..."
 i=0
 until [ "$i" -ge 60 ]
 do
-  if curl -fsS "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null 2>&1; then
+  # Check if API is responding (any HTTP response, including 401)
+  if curl -sS -o /dev/null -w "%{http_code}" "${WG_EASY_API_URL}/api/admin/userconfig" 2>/dev/null | grep -q .; then
     break
   fi
   i=$((i + 1))
