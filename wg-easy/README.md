@@ -146,6 +146,59 @@ This exports:
 - effective `PreUp/PostUp/PreDown/PostDown` from live `wg0.conf`
 - current NAT table snapshot
 
+### NPM-specific translation
+
+NPM lives on the `homelab` bridge at `192.168.100.5`, while overlapping VPN
+clients still target it as `10.200.0.5`.
+
+To make that work, the NPM-specific rules must appear **before** the broad
+`NETMAP` rules:
+
+```sh
+iptables -t nat -A PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5
+iptables -t nat -A POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5
+```
+
+Why:
+- `DNAT` rewrites the destination so wg-easy sends NPM traffic to the
+  reachable `homelab` IP
+- `SNAT` rewrites the reply so the VPN client still sees `10.200.0.5`
+- the specific NPM rule must run before the subnet-wide `NETMAP` rule, or the
+  broader translation will catch `10.200.0.5` first
+
+If you remove or move NPM, update these two rules and keep the same order in
+both `PostUp` and `PostDown`.
+
+### DNS interception for multi-access-path support
+
+**Problem**: Services like NPM need different DNS responses for different client types:
+- LAN clients: resolve to physical IP `192.168.1.5` (direct access via macvlan)
+- Tailnet clients: resolve to physical IP `192.168.1.5` (routed via Tailscale)
+- VPN clients: need translated IP `10.200.0.5` (only reachable via NETMAP/DNAT)
+
+**Solution**: dnsmasq DNS proxy intercepts VPN client queries and rewrites responses.
+
+The setup includes:
+- **dnsmasq service** in wg-easy compose: listens on `127.0.0.1:5353`, forwards to Pi-hole
+- **DNS redirect rules** in PostUp hooks: redirect wg0 port 53 to localhost:5353
+- **dnsmasq.conf**: defines domain rewrites (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.5`)
+
+When a VPN client queries DNS:
+1. DNS request hits port 53 on wg0
+2. iptables REDIRECT rule sends it to localhost:5353 (dnsmasq)
+3. dnsmasq checks its rewrite rules
+4. If match found, responds with translated address; otherwise forwards to Pi-hole
+5. VPN client receives answer and can route to `10.200.0.5`
+
+Configure DNS rewrites in [`dnsmasq.conf`](./dnsmasq.conf):
+
+```
+address=/nginx.pimlicoa.duckdns.org/10.200.0.5
+address=/other-service.pimlicoa.duckdns.org/10.200.0.X
+```
+
+See [HOOKS_SETUP.md](./HOOKS_SETUP.md) for complete hook configuration including DNS interception.
+
 ## WireGuard access to other homelab services
 
 From the compose files in this repository, WireGuard clients can reach services outside Tailnet when:

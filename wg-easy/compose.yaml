@@ -51,6 +51,17 @@ services:
       - homelab
     restart: unless-stopped
 
+  dnsmasq:
+    image: jpillora/dnsmasq:latest
+    container_name: dnsmasq-wg-easy
+    volumes:
+      - ./dnsmasq.conf:/etc/dnsmasq.conf:ro
+    cap_add:
+      - NET_ADMIN
+    networks:
+      - wg_easy_internal
+    restart: unless-stopped
+
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy:15
     container_name: wg-easy
