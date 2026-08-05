@@ -1,7 +1,15 @@
 #!/usr/bin/env sh
 set -eu
 
-WG_EASY_API_URL="${WG_EASY_API_URL:-http://wg-easy:51821}"
+# Detect if running inside container or on host
+if [ -f "/.dockerenv" ]; then
+  # Running inside container, use container name
+  WG_EASY_API_URL="${WG_EASY_API_URL:-http://wg-easy:51821}"
+else
+  # Running on host, use localhost
+  WG_EASY_API_URL="${WG_EASY_API_URL:-http://localhost:51821}"
+fi
+
 HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
 WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
 WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.60}"
