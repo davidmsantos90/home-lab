@@ -8,23 +8,48 @@ This document provides the complete hook strings to configure in the wg-easy web
 
 ## Setup Instructions
 
-1. Open wg-easy web UI at `https://pimlicoa.duckdns.org:51821`
-2. Log in with admin credentials
-3. Go to **Settings** → **WireGuard Hooks** (or similar configuration section)
-4. Copy the **Post Up** hook string below into the Post Up field
-5. Copy the **Post Down** hook string below into the Post Down field
-6. Save and restart wg-easy
+### Automated (Recommended for fresh installs)
+Run the bootstrap script which automatically resolves the dnsmasq container IP:
+```bash
+cd wg-easy
+bash bootstrap-hooks.sh
+```
+
+This resolves `dnsmasq-wg-easy` container IP dynamically and applies rules with no manual work.
+
+### Manual Setup (for existing installations)
+
+1. First, get the dnsmasq container IP on the Raspberry Pi:
+   ```bash
+   docker inspect dnsmasq-wg-easy -f '{{.NetworkSettings.Networks.wg_easy_internal.IPAddress}}'
+   ```
+
+2. Open wg-easy web UI at `https://pimlicoa.duckdns.org:51821`
+
+3. Log in with admin credentials
+
+4. Go to **Settings** → **WireGuard Hooks** (or similar configuration section)
+
+5. Copy the **Post Up** hook string (replace `DNSMASQ_IP` with the IP from step 1) into the Post Up field
+
+6. Copy the **Post Down** hook string (replace `DNSMASQ_IP` with the IP from step 1) into the Post Down field
+
+7. Save and restart wg-easy
 
 ## Post Up Hook
 
+Replace `DNSMASQ_IP` with the actual IP address from step 1 above.
+
 ```bash
-DEFAULT_IF=$(ip route show default | cut -d' ' -f5 | head -n1); T=10.200.0.0/24; H=192.168.1.0/24; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_IF" -j MASQUERADE; modprobe xt_NETMAP || true; iptables -t nat -A PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5; iptables -t nat -A POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5; iptables -t nat -A PREROUTING -d "$T" -j NETMAP --to "$H"; iptables -t nat -A POSTROUTING -s "$H" -j NETMAP --to "$T"; iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j REDIRECT --to-port 5353; iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j REDIRECT --to-port 5353; iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT;
+DEFAULT_IF=$(ip route show default | cut -d' ' -f5 | head -n1); T=10.200.0.0/24; H=192.168.1.0/24; D=DNSMASQ_IP; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_IF" -j MASQUERADE; modprobe xt_NETMAP || true; iptables -t nat -A PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5; iptables -t nat -A POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5; iptables -t nat -A PREROUTING -d "$T" -j NETMAP --to "$H"; iptables -t nat -A POSTROUTING -s "$H" -j NETMAP --to "$T"; iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination "$D:5353"; iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination "$D:5353"; iptables -t nat -A POSTROUTING -d "$D/32" -p udp --dport 5353 -j MASQUERADE; iptables -t nat -A POSTROUTING -d "$D/32" -p tcp --dport 5353 -j MASQUERADE; iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT;
 ```
 
 ## Post Down Hook
 
+Replace `DNSMASQ_IP` with the actual IP address from step 1 above.
+
 ```bash
-DEFAULT_IF=$(ip route show default | cut -d' ' -f5 | head -n1); T=10.200.0.0/24; H=192.168.1.0/24; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_IF" -j MASQUERADE; iptables -t nat -D PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5; iptables -t nat -D POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5; iptables -t nat -D PREROUTING -d "$T" -j NETMAP --to "$H"; iptables -t nat -D POSTROUTING -s "$H" -j NETMAP --to "$T"; iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -j REDIRECT --to-port 5353; iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -j REDIRECT --to-port 5353; iptables -D INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT;
+DEFAULT_IF=$(ip route show default | cut -d' ' -f5 | head -n1); T=10.200.0.0/24; H=192.168.1.0/24; D=DNSMASQ_IP; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_IF" -j MASQUERADE; iptables -t nat -D PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5; iptables -t nat -D POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5; iptables -t nat -D PREROUTING -d "$T" -j NETMAP --to "$H"; iptables -t nat -D POSTROUTING -s "$H" -j NETMAP --to "$T"; iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination "$D:5353"; iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination "$D:5353"; iptables -t nat -D POSTROUTING -d "$D/32" -p udp --dport 5353 -j MASQUERADE; iptables -t nat -D POSTROUTING -d "$D/32" -p tcp --dport 5353 -j MASQUERADE; iptables -D INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT;
 ```
 
 ## Hook Breakdown
@@ -63,11 +88,23 @@ Translates all traffic between VPN subnet (10.200.0.0/24) and home LAN (192.168.
 
 ### 5. DNS Interception (New!)
 ```bash
-iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j REDIRECT --to-port 5353
-iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j REDIRECT --to-port 5353
+# Route DNS queries from VPN clients to dnsmasq container
+iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination $D:5353
+iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination $D:5353
+
+# Masquerade return traffic from dnsmasq so it appears to come from wg-easy
+iptables -t nat -A POSTROUTING -d $D/32 -p udp --dport 5353 -j MASQUERADE
+iptables -t nat -A POSTROUTING -d $D/32 -p tcp --dport 5353 -j MASQUERADE
 ```
-Redirects all DNS queries (UDP and TCP port 53) from wg0 interface to local dnsmasq proxy on port 5353.
-This allows VPN clients to receive translated DNS responses.
+
+Where `$D` is the dnsmasq container IP on wg_easy_internal network (e.g., 172.23.0.2).
+
+**How it works**:
+- PREROUTING DNAT: Rewrites destination of DNS queries from `wg0` to the dnsmasq container IP
+- POSTROUTING MASQUERADE: Rewrites source of dnsmasq responses so VPN clients see replies from wg-easy, not from a different IP
+- VPN clients receive translated DNS responses (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.5`)
+
+This approach uses DNAT instead of REDIRECT because dnsmasq runs in a separate container on the Docker network, not localhost inside wg-easy.
 
 ### 6. Input/Forward Filtering
 ```bash
