@@ -52,6 +52,13 @@ services:
     
     # No ports: block needed — macvlan gives this container a real LAN IP (${NPM_IP})
 
+    # Resolve local DNS names (e.g. Pi-hole "Local DNS Records") when setting
+    # a proxy host's Forward Hostname/IP, instead of relying on ambient
+    # Docker daemon DNS (which may or may not point at Pi-hole depending on
+    # host config) or hardcoded Docker container names.
+    dns:
+      - ${PIHOLE_LAN_IP:-192.168.1.60}
+
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
       interval: 1m
