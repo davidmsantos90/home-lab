@@ -15,9 +15,12 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/nginx-proxy-manager/
 - `TS_AUTHKEY`, `TZ`
 - `NPM_IP` (must be in the configured macvlan range and reserved in DHCP)
 - `PIHOLE_LAN_IP` (defaults to `192.168.1.60`) — Pi-hole's LAN IP, set as this
-  container's DNS resolver so NPM proxy hosts can target Pi-hole "Local DNS
-  Records" (e.g. `little-pi4.lan`) directly in the Forward Hostname/IP field,
-  instead of Docker container names or raw IPs
+  container's primary DNS resolver so NPM proxy hosts can target Pi-hole
+  "Local DNS Records" (e.g. `little-pi4.lan`) directly in the Forward
+  Hostname/IP field, instead of Docker container names or raw IPs
+- `DNS_FALLBACK` (defaults to `1.1.1.1`) — used only if Pi-hole is
+  unreachable, so external DNS lookups (e.g. Let's Encrypt renewal) keep
+  working during a Pi-hole outage
 - `IMAGE_URL` if you want a pinned version
 
 ## Using local (Pi-hole) DNS names in proxy hosts
@@ -30,6 +33,13 @@ instead use any name registered in Pi-hole's **Local DNS Records** — useful
 if you want proxy host targets to stay stable/readable even if the
 underlying container names change, or to point at non-containerized LAN
 devices.
+
+**If Pi-hole goes offline**: Docker container name resolution
+(`tailscale-<service>`) is unaffected, since that's resolved locally by
+Docker's embedded DNS and never reaches Pi-hole or the fallback server.
+`DNS_FALLBACK` only protects *external* DNS lookups (e.g. Let's Encrypt) —
+proxy hosts using Pi-hole local DNS records will still fail to resolve until
+Pi-hole comes back, since Pi-hole is their only source of truth.
 
 **Caveat**: the Tailscale sidecar may manage its own `/etc/resolv.conf` if
 DNS settings are pushed from your Tailnet admin console (MagicDNS), which

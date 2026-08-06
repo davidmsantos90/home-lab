@@ -56,8 +56,17 @@ services:
     # a proxy host's Forward Hostname/IP, instead of relying on ambient
     # Docker daemon DNS (which may or may not point at Pi-hole depending on
     # host config) or hardcoded Docker container names.
+    #
+    # Fallback (1.1.1.1) only kicks in if Pi-hole is unreachable/times out —
+    # not on a legitimate "not found" answer — so external/Let's Encrypt DNS
+    # resolution keeps working during a Pi-hole outage. Local Pi-hole DNS
+    # records still can't resolve during that outage, since Pi-hole is their
+    # only source of truth; Docker container name resolution
+    # (tailscale-<service>) is unaffected either way, since that's handled
+    # locally by Docker's embedded DNS before any of these servers are used.
     dns:
       - ${PIHOLE_LAN_IP:-192.168.1.60}
+      - ${DNS_FALLBACK:-1.1.1.1}
 
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
