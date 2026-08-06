@@ -21,7 +21,7 @@ wg-easy v15 persists hook/user config in `/etc/wireguard/wg-easy.db`. Relying on
 ## Implementation
 
 - `wg-easy/compose.yaml`
-  - `INIT_DNS: ${WG_VPN_DNS:-10.200.0.1}` (first-time setup)
+  - `INIT_DNS: ${WG_VPN_DNS:-10.200.0.1,1.1.1.1}` (first-time setup)
   - one-shot `wg-easy-hooks-bootstrap` service
 - `wg-easy/bootstrap-hooks.sh`
   - updates `POST_UP/POST_DOWN` hooks
@@ -47,4 +47,21 @@ DNAT-redirects them to the `dnsmasq` sidecar before forwarding upstream to
 Pi-hole. The default was corrected to `WG_VPN_DNS=10.200.0.1` so new
 clients get interception-aware DNS out of the box, with Pi-hole still
 reached transparently as dnsmasq's upstream resolver for everything else.
+
+## Update (client-side DNS fallback)
+
+`WG_VPN_DNS` now accepts a comma-separated list (mirroring
+`WG_VPN_ALLOWED_IPS`'s existing pattern), pushed into wg-easy's
+`defaultDns` as a JSON array instead of a single-value string. The default
+is now `WG_VPN_DNS=10.200.0.1,1.1.1.1` — the gateway stays first (required
+for interception), with a public resolver as a second entry so the client
+still has working DNS if the gateway/dnsmasq/Pi-hole path is ever
+unreachable.
+
+Caveat: some OSes/clients may race multiple configured DNS servers rather
+than strictly using the first one until it fails, so domain rewrites could
+occasionally be skipped by a response from the fallback server even while
+the gateway is up but briefly slow. This is an accepted trade-off for
+resilience; omit the second entry (set `WG_VPN_DNS=10.200.0.1` only) if
+strict interception guarantees matter more than fallback connectivity.
 

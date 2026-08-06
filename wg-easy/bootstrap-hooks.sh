@@ -22,7 +22,7 @@ fi
 
 HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
 WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
-WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.1}"
+WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.1,1.1.1.1}"
 WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}"
 # WireGuard-recommended keepalive so client-side NAT/router mappings don't
 # expire during idle periods (prevents needing to manually reconnect after
@@ -105,25 +105,32 @@ curl -fsS -b "$COOKIES_FILE" \
 
 USERCONFIG="$(curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig")"
 
-allowed_ips_json='['
-OLD_IFS="$IFS"
-IFS=','
-for cidr in $WG_VPN_ALLOWED_IPS; do
-  trimmed="$(echo "$cidr" | sed 's/^ *//; s/ *$//')"
-  [ -z "$trimmed" ] && continue
-  if [ "$allowed_ips_json" != "[" ]; then
-    allowed_ips_json="${allowed_ips_json},"
-  fi
-  allowed_ips_json="${allowed_ips_json}\"${trimmed}\""
-done
-IFS="$OLD_IFS"
-allowed_ips_json="${allowed_ips_json}]"
+# Build a JSON array from a comma-separated list (used for both
+# WG_VPN_ALLOWED_IPS and WG_VPN_DNS, which may each hold multiple entries).
+csv_to_json_array() {
+  json='['
+  OLD_IFS="$IFS"
+  IFS=','
+  for item in $1; do
+    trimmed="$(echo "$item" | sed 's/^ *//; s/ *$//')"
+    [ -z "$trimmed" ] && continue
+    if [ "$json" != "[" ]; then
+      json="${json},"
+    fi
+    json="${json}\"${trimmed}\""
+  done
+  IFS="$OLD_IFS"
+  printf '%s]' "$json"
+}
+
+allowed_ips_json="$(csv_to_json_array "$WG_VPN_ALLOWED_IPS")"
+dns_json="$(csv_to_json_array "$WG_VPN_DNS")"
 
 escape_sed_replacement() {
   printf '%s' "$1" | sed 's/[\/&]/\\&/g'
 }
 
-DNS_REPL="$(escape_sed_replacement "\"defaultDns\":[\"${WG_VPN_DNS}\"]")"
+DNS_REPL="$(escape_sed_replacement "\"defaultDns\":${dns_json}")"
 ALLOWED_REPL="$(escape_sed_replacement "\"defaultAllowedIps\":${allowed_ips_json}")"
 KEEPALIVE_REPL="$(escape_sed_replacement "\"defaultPersistentKeepalive\":${WG_VPN_PERSISTENT_KEEPALIVE}")"
 
