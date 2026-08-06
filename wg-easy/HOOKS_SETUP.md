@@ -308,7 +308,7 @@ To modify subnet ranges or DNS domains:
 
 3. Restart services:
    ```bash
-   docker compose restart dnsmasq-wg-easy wg-easy
+   docker compose restart dnsmasq wg-easy
    ```
 
 ## References

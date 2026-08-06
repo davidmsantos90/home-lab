@@ -211,7 +211,17 @@ address=/pimlicoa.duckdns.org/10.200.0.5
 ```
 
 Only add a separate, more specific `address=/.../` line if some other
-subdomain must resolve to a *different* address than the wildcard.
+subdomain must resolve to a *different* address than the wildcard — for
+example, if you later move a service to another machine/IP:
+
+```
+address=/pimlicoa.duckdns.org/10.200.0.5      # wildcard default
+address=/immich.pimlicoa.duckdns.org/10.200.0.42   # override: immich moved elsewhere
+```
+
+dnsmasq always matches the most specific domain rule, regardless of line
+order, so an explicit subdomain rule overrides the wildcard for that one
+subdomain while everything else keeps using the default.
 
 See [HOOKS_SETUP.md](./HOOKS_SETUP.md) for complete hook configuration including DNS interception.
 

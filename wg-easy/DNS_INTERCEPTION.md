@@ -164,8 +164,15 @@ docker exec dnsmasq-wg-easy netstat -tuln | grep 5353
 
 If wrong, update [dnsmasq.conf](./dnsmasq.conf) and restart:
 ```bash
-docker compose restart dnsmasq-wg-easy
+docker compose restart dnsmasq
+# or, equivalently, using the container name directly:
+docker restart dnsmasq-wg-easy
 ```
+Note: `docker compose restart` takes the **service name** from
+`compose.yaml` (`dnsmasq`), while `docker restart` takes the **container
+name** (`dnsmasq-wg-easy`, set via `container_name:`) — don't mix the two,
+e.g. `docker compose restart dnsmasq-wg-easy` fails with "service not
+available" since there's no service literally named that.
 
 ### Issue 3: "Rules applied but DNS still not intercepted"
 
@@ -268,7 +275,7 @@ address — a more specific rule takes precedence over the wildcard.
 
 Then restart dnsmasq:
 ```bash
-docker compose restart dnsmasq-wg-easy
+docker compose restart dnsmasq
 ```
 
 ### Host-native services proxied through NPM (e.g. Plex, Deluge, little-pi4)
