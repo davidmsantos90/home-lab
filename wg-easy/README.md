@@ -202,12 +202,16 @@ When a VPN client queries DNS:
 4. If match found, responds with translated address; otherwise forwards to Pi-hole
 5. VPN client receives answer and can route to `10.200.0.5`
 
-Configure DNS rewrites in [`dnsmasq.conf`](./dnsmasq.conf):
+Configure DNS rewrites in [`dnsmasq.conf`](./dnsmasq.conf). A single wildcard
+rule covers the whole domain (and all its subdomains), so any NPM proxy host
+under it — current or future — is translated automatically:
 
 ```
-address=/nginx.pimlicoa.duckdns.org/10.200.0.5
-address=/other-service.pimlicoa.duckdns.org/10.200.0.X
+address=/pimlicoa.duckdns.org/10.200.0.5
 ```
+
+Only add a separate, more specific `address=/.../` line if some other
+subdomain must resolve to a *different* address than the wildcard.
 
 See [HOOKS_SETUP.md](./HOOKS_SETUP.md) for complete hook configuration including DNS interception.
 

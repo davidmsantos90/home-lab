@@ -71,13 +71,13 @@ dnsmasq receives the redirected query and applies rewrite rules:
 
 ```bash
 # From dnsmasq.conf
-address=/nginx.pimlicoa.duckdns.org/10.200.0.5
+address=/pimlicoa.duckdns.org/10.200.0.5   # wildcard: covers all subdomains
 server=10.200.0.60  # Upstream for other queries
 ```
 
 For this example:
-- Query for `nginx.pimlicoa.duckdns.org` → returns `10.200.0.5` (locally rewritten)
-- Query for anything else → forwarded to Pi-hole (10.200.0.60)
+- Query for `nginx.pimlicoa.duckdns.org` (or any other subdomain, e.g. `immich.`, `portainer.`) → returns `10.200.0.5` (locally rewritten)
+- Query for anything outside the domain → forwarded to Pi-hole (10.200.0.60)
 
 ### 4. MASQUERADE Return Traffic
 Response traffic from dnsmasq needs to appear to come from wg-easy, not from dnsmasq:
@@ -196,7 +196,7 @@ docker compose restart dnsmasq-wg-easy
 4. Check dnsmasq config has rewrite rule:
    ```bash
    docker exec dnsmasq-wg-easy grep "address=" /etc/dnsmasq.conf
-   # Should show: address=/nginx.pimlicoa.duckdns.org/10.200.0.5
+   # Should show: address=/pimlicoa.duckdns.org/10.200.0.5
    ```
 
 ### Issue 4: "Authentication fails when running bootstrap script"
@@ -251,13 +251,20 @@ nslookup nginx.pimlicoa.duckdns.org
 
 ## Adding More Domain Rewrites
 
-To add more services to DNS interception, edit [dnsmasq.conf](./dnsmasq.conf):
+Since every NPM proxy host under `pimlicoa.duckdns.org` shares the same
+translated address (`10.200.0.5`), one wildcard rule in
+[dnsmasq.conf](./dnsmasq.conf) covers the whole domain (and all its
+subdomains) automatically:
 
 ```bash
-# Add rewrite rules for additional services
-address=/service1.pimlicoa.duckdns.org/10.200.0.X
-address=/service2.pimlicoa.duckdns.org/10.200.0.Y
+address=/pimlicoa.duckdns.org/10.200.0.5
 ```
+
+New NPM proxy hosts (e.g. adding another `*.pimlicoa.duckdns.org` service)
+work immediately with no changes needed here. Only add a separate, more
+specific `address=/service.pimlicoa.duckdns.org/10.200.0.X` line if a
+particular subdomain needs to resolve somewhere other than NPM's translated
+address — a more specific rule takes precedence over the wildcard.
 
 Then restart dnsmasq:
 ```bash
@@ -276,14 +283,9 @@ stack and never crosses the WireGuard tunnel, so it is **not** affected by
 the subnet overlap problem.
 
 This means such domains don't need their own translated IP or NAT rules —
-they just need the **same** translated address as NPM itself
-(`10.200.0.5`), exactly like `nginx.pimlicoa.duckdns.org`:
-
-```bash
-address=/plex.pimlicoa.duckdns.org/10.200.0.5
-address=/deluge.pimlicoa.duckdns.org/10.200.0.5
-address=/little-pi4.pimlicoa.duckdns.org/10.200.0.5
-```
+they're already covered by the same wildcard rewrite as any other
+NPM-proxied domain, since they resolve to NPM's translated address
+(`10.200.0.5`) too.
 
 Only add a *new* translated IP (and matching DNAT/SNAT pair in
 `bootstrap-hooks.sh`, following the same pattern used for NPM's
