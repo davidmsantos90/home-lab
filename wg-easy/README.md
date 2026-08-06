@@ -28,6 +28,7 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/wg-easy/.env.example
 - `TZ`
 - `WG_VPN_DNS` (defaults to `10.200.0.60`) for new/updated WireGuard client DNS
 - `WG_VPN_ALLOWED_IPS` (defaults to `10.200.0.0/24,192.168.1.0/24`) for new/updated client routes
+- `WG_VPN_PERSISTENT_KEEPALIVE` (defaults to `25`) seconds between client keepalive packets; prevents NAT/router mappings from expiring during idle periods (see [Troubleshooting](#troubleshooting))
 
 ### RFC-001 Overlap Subnet Translation (Optional)
 
@@ -65,8 +66,18 @@ docker logs wg-easy-hooks-bootstrap
 The bootstrap also updates wg-easy `userconfig` defaults:
 - `defaultDns` <- `WG_VPN_DNS`
 - `defaultAllowedIps` <- `WG_VPN_ALLOWED_IPS`
+- `defaultPersistentKeepalive` <- `WG_VPN_PERSISTENT_KEEPALIVE`
 
 This ensures fresh starts pick up VPN DNS/routing defaults without manual UI edits.
+
+> **Note:** `defaultPersistentKeepalive` only affects **newly created** clients —
+> it's baked into each client's config when generated, not applied
+> retroactively. Existing clients that were created before this default was
+> set will keep `PersistentKeepalive = 0` (disabled) until you either:
+> - Edit the client in the wg-easy web UI (Admin -> Clients -> client ->
+>   "Persistent Keepalive") and set it to `25`, or
+> - Delete and recreate the client (re-scan the QR code / re-download the
+>   config on the device)
 
 ## Validation
 
@@ -237,6 +248,20 @@ docker exec wg-easy iptables -t nat -S | grep MASQUERADE
 ```
 
 The interface in both commands must match.
+
+**Symptom: VPN client gets disconnected / stops reaching services after being idle (1-2 hours)**
+
+Usually caused by a client's `PersistentKeepalive` being `0` (disabled), so a
+NAT device (router, carrier-grade NAT, or the client's own OS) silently drops
+the idle UDP mapping after a timeout — the tunnel goes stale until the client
+manually reconnects. Fix by setting a keepalive:
+
+- **New clients**: `WG_VPN_PERSISTENT_KEEPALIVE` (default `25`, applied
+  automatically by the bootstrap script) already covers this
+- **Existing clients created before this default was set**: edit the client
+  in the wg-easy web UI (Admin -> Clients -> client -> "Persistent
+  Keepalive" -> `25`), or delete and recreate the client to pick up the new
+  default
 
 ## Useful links
 

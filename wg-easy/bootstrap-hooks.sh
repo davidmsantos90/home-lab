@@ -24,6 +24,10 @@ HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
 WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
 WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.60}"
 WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}"
+# WireGuard-recommended keepalive so client-side NAT/router mappings don't
+# expire during idle periods (prevents needing to manually reconnect after
+# the connection has been idle for a while).
+WG_VPN_PERSISTENT_KEEPALIVE="${WG_VPN_PERSISTENT_KEEPALIVE:-25}"
 COOKIES_FILE="/tmp/wg-easy-cookies.txt"
 
 if [ -z "${WG_EASY_ADMIN_USERNAME:-}" ] || [ -z "${WG_EASY_ADMIN_PASSWORD:-}" ]; then
@@ -121,9 +125,10 @@ escape_sed_replacement() {
 
 DNS_REPL="$(escape_sed_replacement "\"defaultDns\":[\"${WG_VPN_DNS}\"]")"
 ALLOWED_REPL="$(escape_sed_replacement "\"defaultAllowedIps\":${allowed_ips_json}")"
+KEEPALIVE_REPL="$(escape_sed_replacement "\"defaultPersistentKeepalive\":${WG_VPN_PERSISTENT_KEEPALIVE}")"
 
 UPDATED_USERCONFIG="$(printf '%s' "$USERCONFIG" | sed -E \
-  "s|\"defaultDns\":\[[^]]*\]|${DNS_REPL}|; s|\"defaultAllowedIps\":\[[^]]*\]|${ALLOWED_REPL}|")"
+  "s|\"defaultDns\":\[[^]]*\]|${DNS_REPL}|; s|\"defaultAllowedIps\":\[[^]]*\]|${ALLOWED_REPL}|; s|\"defaultPersistentKeepalive\":[0-9]+|${KEEPALIVE_REPL}|")"
 
 curl -fsS -b "$COOKIES_FILE" \
   -X POST \
