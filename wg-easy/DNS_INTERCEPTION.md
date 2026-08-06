@@ -264,6 +264,33 @@ Then restart dnsmasq:
 docker compose restart dnsmasq-wg-easy
 ```
 
+### Host-native services proxied through NPM (e.g. Plex, Deluge, little-pi4)
+
+Services that run directly on the Pi's host, or on another LAN device, are
+typically reached via an NPM proxy host that forwards over the `homelab`
+bridge network (e.g. `http://192.168.100.1:32400` for Plex,
+`http://192.168.100.1:8112` for Deluge, `http://192.168.100.1:9090` for
+little-pi4 — where `192.168.100.1` is the `homelab` bridge gateway, i.e. the
+host itself). That NPM → target hop happens entirely inside the Pi's network
+stack and never crosses the WireGuard tunnel, so it is **not** affected by
+the subnet overlap problem.
+
+This means such domains don't need their own translated IP or NAT rules —
+they just need the **same** translated address as NPM itself
+(`10.200.0.5`), exactly like `nginx.pimlicoa.duckdns.org`:
+
+```bash
+address=/plex.pimlicoa.duckdns.org/10.200.0.5
+address=/deluge.pimlicoa.duckdns.org/10.200.0.5
+address=/little-pi4.pimlicoa.duckdns.org/10.200.0.5
+```
+
+Only add a *new* translated IP (and matching DNAT/SNAT pair in
+`bootstrap-hooks.sh`, following the same pattern used for NPM's
+`10.200.0.5 ↔ 192.168.100.5` rule) if a client needs to reach a host-native
+service **directly**, bypassing NPM — e.g. a Plex app doing local network
+auto-discovery instead of using the reverse-proxy domain.
+
 ## Performance Considerations
 
 - **DNS cache**: Default cache-size is 150 entries. Increase if you have many unique queries:

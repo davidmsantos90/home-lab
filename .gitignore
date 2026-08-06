@@ -8,3 +8,5 @@
 .env
 ts/
 wg-easy/data/
+data/
+letsencrypt/
