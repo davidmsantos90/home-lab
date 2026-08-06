@@ -26,7 +26,7 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/wg-easy/.env.example
 - `WG_EASY_HOST` (defaults to `pimlicoa.duckdns.org`)
 - `WG_EASY_ADMIN_USERNAME`, `WG_EASY_ADMIN_PASSWORD`
 - `TZ`
-- `WG_VPN_DNS` (defaults to `10.200.0.60`) for new/updated WireGuard client DNS
+- `WG_VPN_DNS` (defaults to `10.200.0.1`, the VPN gateway address) for new/updated WireGuard client DNS — must be the gateway, not Pi-hole directly, so DNS interception (domain rewrites for VPN clients) still applies. See [DNS_INTERCEPTION.md](/Users/davsantos/github/misc/home-lab/wg-easy/DNS_INTERCEPTION.md)
 - `WG_VPN_ALLOWED_IPS` (defaults to `10.200.0.0/24,192.168.1.0/24`) for new/updated client routes
 - `WG_VPN_PERSISTENT_KEEPALIVE` (defaults to `25`) seconds between client keepalive packets; prevents NAT/router mappings from expiring during idle periods (see [Troubleshooting](#troubleshooting))
 - `HOME_LAB_DIR` (defaults to `.`) base directory for Tailscale state and WireGuard config/keys — set this to move this stack's persistent data elsewhere, e.g. an external drive (see the root [README.md](/Users/davsantos/github/misc/home-lab/README.md#relocating-a-services-data-home_lab_dir))

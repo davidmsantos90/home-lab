@@ -22,7 +22,7 @@ fi
 
 HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
 WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
-WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.60}"
+WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.1}"
 WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}"
 # WireGuard-recommended keepalive so client-side NAT/router mappings don't
 # expire during idle periods (prevents needing to manually reconnect after
