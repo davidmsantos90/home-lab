@@ -25,8 +25,8 @@ services:
       - source: ts-serve
         target: /config/serve.json
     volumes:
-      - ./ts/config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/ts/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:
@@ -54,8 +54,8 @@ services:
       - PGID=1000
       - TZ=${TZ}
     volumes:
-      - ${JELLYFIN_CONFIG_PATH:-./jellyfin-data/config}:/config
-      - ${JELLYFIN_CACHE_PATH:-./jellyfin-data/cache}:/cache
+      - ${JELLYFIN_CONFIG_PATH:-${HOME_LAB_DIR:-.}/jellyfin-data/config}:/config
+      - ${JELLYFIN_CACHE_PATH:-${HOME_LAB_DIR:-.}/jellyfin-data/cache}:/cache
       - ${JELLYFIN_MEDIA_PATH:-./jellyfin-data/media}:/media   # Mount your full media root here
     # Hardware transcoding — uncomment the relevant block for your hardware:
     #

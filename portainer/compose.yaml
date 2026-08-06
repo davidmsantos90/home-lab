@@ -28,8 +28,8 @@ services:
         target: /config/serve.json
     
     volumes:
-      - ./ts/config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/ts/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     
     devices:
       - /dev/net/tun:/dev/net/tun
@@ -64,7 +64,7 @@ services:
     
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
+      - ${HOME_LAB_DIR:-.}/data:/data
     
     depends_on:
       tailscale:

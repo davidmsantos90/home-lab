@@ -28,8 +28,8 @@ services:
         target: /config/serve.json
     
     volumes:
-      - ./ts/config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/ts/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     
     devices:
       - /dev/net/tun:/dev/net/tun
@@ -110,7 +110,7 @@ services:
       POSTGRES_INITDB_ARGS: "--data-checksums"
     
     volumes:
-      - ${DB_DATA_LOCATION}:/var/lib/postgresql/data
+      - ${DB_DATA_LOCATION:-${HOME_LAB_DIR:-.}/postgres-data}:/var/lib/postgresql/data
     
     restart: unless-stopped
 

@@ -28,8 +28,8 @@ services:
         target: /config/serve.json
     
     volumes:
-      - ./ts/config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/ts/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     
     devices:
       - /dev/net/tun:/dev/net/tun
@@ -67,8 +67,8 @@ services:
       - DNSMASQ_LISTENING=all    # Listen on all interfaces (required with Tailscale sidecar)
     
     volumes:
-      - ./etc-pihole:/etc/pihole
-      - ./etc-dnsmasq.d:/etc/dnsmasq.d
+      - ${HOME_LAB_DIR:-.}/etc-pihole:/etc/pihole
+      - ${HOME_LAB_DIR:-.}/etc-dnsmasq.d:/etc/dnsmasq.d
     
     cap_add:
       - NET_ADMIN  # Required for Pi-hole DNS/DHCP to function

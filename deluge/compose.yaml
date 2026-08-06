@@ -25,8 +25,8 @@ services:
       - source: ts-serve
         target: /config/serve.json
     volumes:
-      - ./config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:
@@ -57,7 +57,7 @@ services:
       - TZ=${TZ}
       - DELUGE_LOGLEVEL=error
     volumes:
-      - ${DELUGE_CONFIG_PATH:-./deluge-data/config}:/config
+      - ${DELUGE_CONFIG_PATH:-${HOME_LAB_DIR:-.}/deluge-data/config}:/config
       - ${DOWNLOADS_PATH:-./deluge-data/downloads}:/downloads
     depends_on:
       tailscale:

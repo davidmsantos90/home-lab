@@ -51,6 +51,37 @@ home-lab/
 - Docker + Docker Compose v2
 - A [Tailscale](https://tailscale.com/) account
 
+## Relocating a service's data (`HOME_LAB_DIR`)
+
+Every service exposes a `HOME_LAB_DIR` environment variable (in its `.env.example`)
+that sets the base directory for that service's persistent config/state
+volumes (Tailscale state, app config, database data, etc). It defaults to
+`.` — the service's own directory — so nothing changes unless you set it.
+
+Set it in a service's `.env` to move its data elsewhere, e.g. an external
+drive mounted at `/mnt/storage`:
+
+```bash
+# nginx-proxy-manager/.env
+HOME_LAB_DIR=/mnt/storage/nginx-proxy-manager
+```
+
+Large media/library paths (`PLEX_MEDIA_PATH`, `JELLYFIN_MEDIA_PATH`,
+`DOWNLOADS_PATH`, `UPLOAD_LOCATION`) are intentionally **not** covered by
+`HOME_LAB_DIR` — they have their own dedicated variables since they're
+often stored on separate, larger volumes than a service's config/state.
+
+After changing `HOME_LAB_DIR` for a service that's already running, stop it,
+move the existing data to the new location, then start it again:
+
+```bash
+cd <service>
+docker compose down
+mv ./ts /mnt/storage/<service>/ts   # and any other existing data dirs
+# update HOME_LAB_DIR in .env
+docker compose up -d
+```
+
 ## Quick Start
 
 ### 1. Create the shared Docker networks

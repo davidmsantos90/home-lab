@@ -41,8 +41,8 @@ services:
     #     target: /config/serve.json
 
     volumes:
-      - ./ts/config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/ts/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     
     devices:
       - /dev/net/tun:/dev/net/tun
@@ -78,8 +78,8 @@ services:
       - TZ=${TZ}
     
     volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
+      - ${HOME_LAB_DIR:-.}/data:/data
+      - ${HOME_LAB_DIR:-.}/letsencrypt:/etc/letsencrypt
     
     depends_on:
       tailscale:

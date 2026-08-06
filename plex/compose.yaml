@@ -25,8 +25,8 @@ services:
       - source: ts-serve
         target: /config/serve.json
     volumes:
-      - ./ts/config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/ts/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:
@@ -56,7 +56,7 @@ services:
       - VERSION=docker
       - PLEX_CLAIM=${PLEX_CLAIM}
     volumes:
-      - ${PLEX_CONFIG_PATH:-./plex-data/config}:/config
+      - ${PLEX_CONFIG_PATH:-${HOME_LAB_DIR:-.}/plex-data/config}:/config
       - ${PLEX_MEDIA_PATH:-./plex-data/media}:/media   # Mount your full media root here
     depends_on:
       tailscale:

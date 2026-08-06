@@ -34,8 +34,8 @@ services:
       - source: ts-serve
         target: /config/serve.json
     volumes:
-      - ./ts/config:/config
-      - ./ts/state:/var/lib/tailscale
+      - ${HOME_LAB_DIR:-.}/ts/config:/config
+      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
     devices:
       - /dev/net/tun:/dev/net/tun
     cap_add:
@@ -79,7 +79,7 @@ services:
       HOME_LAN_SUBNET: ${HOME_LAN_SUBNET:-192.168.1.0/24}
       WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}
     volumes:
-      - ./data:/etc/wireguard
+      - ${HOME_LAB_DIR:-.}/data:/etc/wireguard
       - /lib/modules:/lib/modules:ro
     cap_add:
       - NET_ADMIN
