@@ -237,6 +237,51 @@ hotspot) can handshake but still cannot ping the normal WireGuard/LAN addresses,
 fix that baseline path first. RFC-001 overlap validation depends on the vanilla
 path already working.
 
+## Restricting a client's access (current limitations)
+
+The wg-easy UI lets you set a custom **Allowed IPs** value per client, which
+looks like a per-client firewall control, but in this stack it's weaker than
+it appears:
+
+- **AllowedIPs is not a server-side ACL.** It only controls (a) what routes
+  are written into the client's own generated config, and (b) an anti-spoof
+  check on the packet's *source* address. It does **not** restrict which
+  *destinations* the server will forward a client's decrypted traffic to.
+  Restricting a client's AllowedIPs to a single host only stops that
+  client's own OS from routing elsewhere by default — a client who edits
+  their own `.conf` to add broader routes is not blocked server-side, because
+  [`bootstrap-hooks.sh`](./bootstrap-hooks.sh) installs a blanket
+  `iptables -A FORWARD -i wg0 -j ACCEPT` (and the matching `-o wg0` rule) that
+  accepts all wg0 traffic to any destination, for every client.
+- **Almost everything goes through one IP.** Nearly all homelab services are
+  reverse-proxied through NPM at a single translated address (`10.200.0.5`).
+  NPM routes by HTTP `Host` header, not by source IP or destination port, so
+  scoping a client's `AllowedIPs` down to `10.200.0.5/32` doesn't distinguish
+  between individual services — a client that can reach NPM at all can reach
+  every proxy host behind it (Plex, Immich, Portainer, etc.), unless NPM's own
+  per-proxy-host **Access Lists** feature is also used to restrict by source
+  IP (see below).
+- **Direct-IP access bypasses NPM (and its Access Lists) entirely.** Because
+  each client's real WireGuard tunnel address (e.g. `10.8.0.5`) is preserved
+  all the way to NPM (no SNAT is applied on that path — see
+  [`bootstrap-hooks.sh`](./bootstrap-hooks.sh)'s NAT rules), NPM Access Lists
+  keyed on that address do work for anything routed *through* NPM by domain
+  name. But nothing today stops a client from hitting a service directly by
+  translated/LAN IP and port (e.g. `10.200.0.32:32400` for Plex), completely
+  skipping NPM and any Access List configured there — because of the blanket
+  `FORWARD` accept described above.
+
+**Practical mitigations today:**
+
+1. Use NPM **Access Lists** (Admin -> Access Lists) per proxy host to restrict
+   *which domains* a given client IP may reach through NPM.
+2. Treat WireGuard client `AllowedIPs` as advisory routing hints for
+   well-behaved clients, not a security boundary.
+3. Real per-client, per-destination enforcement requires server-side iptables
+   rules scoped to each client's tunnel IP — this is not implemented yet.
+   See [RFC-005](./docs/RFC-005-per-client-access-restriction.md) for the
+   planned design.
+
 ## Troubleshooting
 
 **Symptom: Handshake succeeds but no Internet access**
@@ -269,3 +314,4 @@ manually reconnects. Fix by setting a keepalive:
 - https://wg-easy.github.io/wg-easy/latest/
 - https://www.duckdns.org/
 - [RFC-002: Dynamic Egress Interface Detection](/Users/davsantos/github/misc/home-lab/wg-easy/docs/RFC-002-dynamic-egress-interface.md)
+- [RFC-005: Per-Client Access Restriction (proposed)](/Users/davsantos/github/misc/home-lab/wg-easy/docs/RFC-005-per-client-access-restriction.md)
