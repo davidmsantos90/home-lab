@@ -57,6 +57,15 @@ This rule:
 - Rewrites destination to dnsmasq container IP (172.23.0.2) on port 5353
 - Preserves the original query so dnsmasq can answer it
 
+**Rule order matters**: this DNAT rule must be placed **before** the NPM
+DNAT/SNAT rules and the NETMAP rules in PREROUTING. The client's DNS queries
+target the wg0 gateway address (`10.200.0.1`), which falls inside the
+translated subnet (`10.200.0.0/24`). In iptables' `nat` table, a packet stops
+being evaluated by further rules in the same chain once it matches a NAT
+target. If NETMAP ran first, it would silently rewrite the destination to
+`192.168.1.1` and the DNS interception rule below it would never run —
+with no errors, making this very hard to spot.
+
 ### 3. dnsmasq Domain Rewriting
 dnsmasq receives the redirected query and applies rewrite rules:
 
@@ -104,25 +113,48 @@ This rule:
    ```
    Should show DNS redirect rules.
 
-### Issue 2: "dnsmasq not receiving queries"
+### Issue 2: "dnsmasq not receiving queries" (0 packets on dnsmasq's interface)
 
-**Cause**: dnsmasq is listening only on localhost (127.0.0.1), but DNAT redirects to container IP (172.23.0.2).
+**Cause A**: dnsmasq is listening only on localhost (127.0.0.1), but DNAT redirects to container IP (172.23.0.2).
 
 **Solution**: Check dnsmasq.conf:
 ```bash
 docker exec dnsmasq-wg-easy cat /etc/dnsmasq.conf
 ```
 
-Should NOT have:
-```
-listen-address=127.0.0.1
-```
+Should NOT have a `listen-address` line restricting it to `127.0.0.1`. Simply
+omit `listen-address` entirely — dnsmasq listens on all interfaces by
+default. (Note: `bind-interfaces=0` is **not valid dnsmasq syntax** and will
+cause `extraneous parameter` errors — just leave the directive out.)
 
-Should have (or be omitted for default):
+**Cause B (the sneaky one)**: A rule placed *before* the DNS DNAT rule in
+PREROUTING is catching the packet first — most likely the NETMAP rule,
+since the client's DNS query targets the wg0 gateway IP (`10.200.0.1`),
+which is inside the translated subnet (`10.200.0.0/24`). Once NETMAP claims
+the packet, no further NAT rules in that chain apply and dnsmasq never
+sees it. **Fix: DNS interception rules must be the first NAT rules applied
+in PostUp**, before NPM DNAT/SNAT and before NETMAP.
+
+**How to confirm this is happening** (definitive diagnostic, avoids guessing):
+```bash
+# Temporarily install tcpdump in the dnsmasq container and watch for traffic
+docker exec dnsmasq-wg-easy apk add --no-cache tcpdump
+docker exec dnsmasq-wg-easy timeout 30 tcpdump -i eth0 -n port 5353
+# Then, from the VPN client: nslookup nginx.pimlicoa.duckdns.org
 ```
-port=5353
-bind-interfaces=0
+If this shows **0 packets captured**, the DNAT redirect never reached
+dnsmasq — check rule order in `iptables -t nat -S` output (list them with
+`docker exec wg-easy iptables -t nat -S`) and confirm the DNS rules appear
+above the NETMAP/NPM rules.
+
+You can also confirm what's happening on the wg-easy side:
+```bash
+docker exec wg-easy apk add --no-cache tcpdump
+docker exec wg-easy timeout 30 tcpdump -i wg0 -n port 53
 ```
+This will show the query arriving on wg0 either way (tcpdump captures at the
+device level, before PREROUTING NAT is applied), so seeing the query here
+doesn't confirm interception — pair it with the dnsmasq-side capture above.
 
 Verify dnsmasq is listening correctly:
 ```bash
