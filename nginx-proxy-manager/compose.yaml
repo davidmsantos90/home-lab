@@ -65,8 +65,8 @@ services:
     # (tailscale-<service>) is unaffected either way, since that's handled
     # locally by Docker's embedded DNS before any of these servers are used.
     dns:
-      - ${PIHOLE_LAN_IP:-192.168.1.60}
-      - ${DNS_FALLBACK:-1.1.1.1}
+      - ${PIHOLE_LAN_IP}
+      - ${DNS_FALLBACK}
 
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
