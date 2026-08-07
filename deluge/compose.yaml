@@ -31,6 +31,9 @@ services:
       - /dev/net/tun:/dev/net/tun
     cap_add:
       - net_admin
+    dns:
+      - ${DNS_SERVER:-192.168.1.60}
+      - ${DNS_SERVER_FALLBACK:-1.1.1.1}
     ports:
       - "0.0.0.0:${SERVICEPORT}:${SERVICEPORT}"  # Web UI - local network
       - "0.0.0.0:6881:6881/tcp"                   # Torrent traffic

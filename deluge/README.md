@@ -15,6 +15,9 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/deluge/.env.example)
 - `TS_AUTHKEY`, `TZ`
 - `DELUGE_CONFIG_PATH`, `DOWNLOADS_PATH`
 - `SERVICEPORT` (default `8112`)
+- `DNS_SERVER` (default `192.168.1.60`, your Pi-hole) / `DNS_SERVER_FALLBACK`
+  (default `1.1.1.1`) — DNS used by the tailscale sidecar for its own external
+  lookups; the fallback is only used if `DNS_SERVER` is unreachable
 
 ## Startup
 
