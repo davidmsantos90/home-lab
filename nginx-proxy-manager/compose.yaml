@@ -61,12 +61,19 @@ services:
     # not on a legitimate "not found" answer — so external/Let's Encrypt DNS
     # resolution keeps working during a Pi-hole outage. Local Pi-hole DNS
     # records still can't resolve during that outage, since Pi-hole is their
-    # only source of truth; Docker container name resolution
-    # (tailscale-<service>) is unaffected either way, since that's handled
-    # locally by Docker's embedded DNS before any of these servers are used.
+    # only source of truth.
+    #
+    # dns_search must be cleared: setting an explicit dns: list also makes
+    # Docker copy the host's search domain (e.g. "lan") into this container's
+    # resolv.conf, which breaks bare Docker container-name resolution (e.g.
+    # "tailscale-immich" gets queried as "tailscale-immich.lan" and NXDOMAINs
+    # against Docker's embedded DNS). Clearing it restores literal name
+    # resolution for container names while keeping the dns: servers above for
+    # everything else.
     dns:
       - ${PIHOLE_LAN_IP}
       - ${DNS_FALLBACK}
+    dns_search: []
 
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]

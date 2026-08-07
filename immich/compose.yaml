@@ -40,6 +40,7 @@ services:
     dns:
       - ${DNS_SERVER}
       - ${DNS_SERVER_FALLBACK}
+    dns_search: []  # Prevent host search-domain suffix breaking Docker container-name resolution
     
     ports:
       - "0.0.0.0:${SERVICEPORT}:${SERVICEPORT}"  # Web UI - local network
