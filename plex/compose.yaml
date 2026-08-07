@@ -31,10 +31,6 @@ services:
       - /dev/net/tun:/dev/net/tun
     cap_add:
       - net_admin
-    dns:
-      - ${DNS_SERVER}
-      - ${DNS_SERVER_FALLBACK}
-    dns_search: ["."]  # "." disables search-domain expansion; an empty list is silently ignored by Docker and would still inherit the host's search domain, breaking Docker container-name resolution
     ports:
       - "0.0.0.0:${SERVICEPORT}:${SERVICEPORT}"  # Plex web UI - local network
     healthcheck:

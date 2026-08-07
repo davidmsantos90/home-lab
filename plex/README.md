@@ -16,9 +16,6 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/plex/.env.example) t
 - `TS_AUTHKEY`, `TZ`
 - `PLEX_CLAIM` (for first run)
 - `PLEX_CONFIG_PATH`, `PLEX_MEDIA_PATH`
-- `DNS_SERVER` (default `192.168.1.60`, your Pi-hole) / `DNS_SERVER_FALLBACK`
-  (default `1.1.1.1`) — DNS used by the tailscale sidecar for its own external
-  lookups; the fallback is only used if `DNS_SERVER` is unreachable
 
 ## Startup
 

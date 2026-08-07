@@ -14,9 +14,6 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/portainer/.env.examp
 
 - `TS_AUTHKEY`, `TZ`
 - `SERVICEPORT` (default `9000`)
-- `DNS_SERVER` (default `192.168.1.60`, your Pi-hole) / `DNS_SERVER_FALLBACK`
-  (default `1.1.1.1`) — DNS used by the tailscale sidecar for its own external
-  lookups; the fallback is only used if `DNS_SERVER` is unreachable
 
 ## Startup
 
