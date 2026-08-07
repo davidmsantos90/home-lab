@@ -13,7 +13,8 @@ BitTorrent client stack with web UI and torrent ports exposed locally.
 Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/deluge/.env.example) to `.env` and set:
 
 - `TS_AUTHKEY`, `TZ`
-- `DELUGE_CONFIG_PATH`, `DOWNLOADS_PATH`
+- `HOME_LAB_DIR` (base dir for config/state/downloads)
+- `DOWNLOADS_PATH` (optional override for downloads location)
 - `SERVICEPORT` (default `8112`)
 
 ## Startup
