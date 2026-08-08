@@ -14,6 +14,9 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/nginx-proxy-manager/
 
 - `TS_AUTHKEY`, `TZ`
 - `NPM_IP` (must be in the configured macvlan range and reserved in DHCP)
+- `NPM_MAC` (pinned MAC for the macvlan interface — prevents the router's
+  ARP/IP-MAC binding from breaking reachability every time this container
+  is recreated; see comment in `.env.example` for how to generate one)
 - `PIHOLE_LAN_IP` (defaults to `192.168.1.60`) — Pi-hole's LAN IP, set as this
   container's primary DNS resolver so NPM proxy hosts can target Pi-hole
   "Local DNS Records" (e.g. `little-pi4.lan`) directly in the Forward

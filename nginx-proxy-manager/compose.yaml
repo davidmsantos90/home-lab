@@ -90,6 +90,9 @@ services:
         ipv4_address: 192.168.100.5    # Static homelab IP for wg-easy to reach via NETMAP
       macvlan:                       # No ports: needed — macvlan gives this container a real LAN IP
         ipv4_address: ${NPM_IP}      # Static LAN IP — reserve this in your router
+        mac_address: ${NPM_MAC}      # Pinned so the router's ARP/IP-MAC binding doesn't
+                                      # break on every container recreation (Docker assigns
+                                      # a new random MAC each time otherwise, same IP)
     
     restart: unless-stopped
 
