@@ -56,8 +56,8 @@ services:
       - VERSION=docker
       - PLEX_CLAIM=${PLEX_CLAIM}
     volumes:
-      - ${PLEX_CONFIG_PATH:-${HOME_LAB_DIR:-.}/plex-data/config}:/config
-      - ${PLEX_MEDIA_PATH:-./plex-data/media}:/media   # Mount your full media root here
+      - ${HOME_LAB_DIR:-.}/config:/config
+      - ${PLEX_MEDIA_PATH:-${HOME_LAB_DIR:-.}/media}:/media   # Mount your full media root here
     depends_on:
       tailscale:
         condition: service_healthy

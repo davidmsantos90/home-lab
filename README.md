@@ -300,19 +300,26 @@ ls ~/.local/share/plex/        # alternative location
    sudo systemctl disable deluged deluge-web
    ```
 
-2. **Update `deluge/.env`** with your actual paths:
+2. **Copy (not move) your existing config** into the location `deluge/compose.yaml`
+   expects (`${HOME_LAB_DIR:-.}/config`, i.e. `deluge/config` by default):
+   ```bash
+   mkdir -p deluge/config
+   cp -a ~/.config/deluge/. deluge/config/
+   ```
+
+3. **Set `DOWNLOADS_PATH`** in `deluge/.env` to your existing downloads directory
+   (no copying needed — it's mounted directly):
    ```env
-   DELUGE_CONFIG_PATH=/home/pi/.config/deluge
    DOWNLOADS_PATH=/home/pi/Downloads
    ```
 
-3. **Start the Docker stack** — it mounts your existing config and downloads directly:
+4. **Start the Docker stack**:
    ```bash
    cd deluge
    docker compose up -d
    ```
 
-4. Verify at `http://<host-ip>:8112` — all torrents, settings, and history should be intact.
+5. Verify at `http://<host-ip>:8112` — all torrents, settings, and history should be intact.
 
 ### Migrate Plex
 
@@ -323,22 +330,32 @@ ls ~/.local/share/plex/        # alternative location
    ```
 
 2. **Get a Plex claim token** (valid for 4 minutes, only needed on first start):
-   Visit https://plex.tv/claim and copy the token.
+   Visit https://plex.tv/claim and copy the token — not needed if you're copying
+   an existing config (see next step), since server identity is preserved.
 
-3. **Update `plex/.env`** with your actual paths and claim token:
+3. **Copy (not move) your existing config** into the location `plex/compose.yaml`
+   expects (`${HOME_LAB_DIR:-.}/config`, i.e. `plex/config` by default):
+   ```bash
+   mkdir -p plex/config
+   cp -a "/var/lib/plexmediaserver/Library/Application Support/Plex Media Server/." plex/config/
+   ```
+
+4. **Set `PLEX_MEDIA_PATH`** in `plex/.env` to your existing media directory
+   (no copying needed — it's mounted directly). Mount the same parent directory
+   Plex originally scanned from, so the container sees media at the same
+   absolute path recorded in Plex's library database:
    ```env
-   PLEX_CONFIG_PATH=/var/lib/plexmediaserver/Library/Application Support/Plex Media Server
    PLEX_MEDIA_PATH=/home/pi/media
    PLEX_CLAIM=claim-xxxxxxxxxxxxxxxxxxxx
    ```
 
-4. **Start the Docker stack**:
+5. **Start the Docker stack**:
    ```bash
    cd plex
    docker compose up -d
    ```
 
-5. Verify at `http://<host-ip>:32400/web` — libraries, metadata, and watch history should all be present.
+6. Verify at `http://<host-ip>:32400/web` — libraries, metadata, and watch history should all be present.
 
 > **Note**: `PUID`/`PGID` (default `1000`) must match the owner of your existing config files. Check with `ls -la ~/.config/deluge` or `ls -la /var/lib/plexmediaserver`.
 

@@ -15,7 +15,8 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/plex/.env.example) t
 
 - `TS_AUTHKEY`, `TZ`
 - `PLEX_CLAIM` (for first run)
-- `PLEX_CONFIG_PATH`, `PLEX_MEDIA_PATH`
+- `HOME_LAB_DIR` (base dir for config/state; defaults to `.`)
+- `PLEX_MEDIA_PATH` (your media library location — set this, no sensible default)
 
 ## Startup
 
