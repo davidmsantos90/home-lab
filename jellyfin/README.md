@@ -68,6 +68,26 @@ Install via **Dashboard → Plugins → Catalogue**. Recommended:
 
 If you use Overseerr with Plex, use [Jellyseerr](https://github.com/Fallenbagel/jellyseerr) with Jellyfin. It is a separate service — add it as a new compose stack when needed.
 
+**What it does:** Jellyseerr is a self-hosted request-management front-end
+(the Jellyfin-flavored fork of Overseerr). It gives users a Netflix-style
+browsing UI (backed by TMDB) to search for *any* movie/show — including ones
+you don't have yet — and click "Request" instead of asking you directly.
+Requests land in an approval queue for the admin, and on approval it can hand
+off automatically to **Radarr** (movies) and **Sonarr** (TV) to search
+indexers and grab the download, turning "approve" into a one-click
+search → download → add-to-library pipeline. It tracks each request's status
+(Pending → Approved → Processing → Available) and can notify the requester
+(Discord/email/push) when it's ready, and it syncs against existing Jellyfin
+user accounts with configurable per-user auto-approve permissions.
+
+**Not deployed yet** — it's only useful paired with Radarr/Sonarr for the
+automated-download handoff (Jellyseerr alone can still track requests
+manually without them). Since this stack already runs Deluge, adding
+Jellyseerr + Radarr/Sonarr later would complete a standard
+Jellyfin + request-management + automated-download pipeline. Revisit when
+ready to scaffold `jellyseerr/compose.yaml` (and `radarr`/`sonarr`) following
+the same pattern as the other services in this repo.
+
 ### 4. Nginx Proxy Manager upstream
 
 Add a proxy host in NPM:
@@ -99,4 +119,15 @@ jellyfin.pimlicoa.duckdns.org → pimlicoa.duckdns.org
 
 There is no direct Plex-to-Jellyfin config migration. Jellyfin will re-scan your existing media files and fetch metadata fresh. Your media files are shared — just point `JELLYFIN_MEDIA_PATH` at the same directory as `PLEX_MEDIA_PATH`.
 
-Watch history and ratings cannot be migrated automatically.
+Watch history and ratings are not migrated automatically by Jellyfin itself, but
+third-party community tools can bridge this gap:
+
+- **[PlexToJellyfin](https://github.com/Iron-Ham/plex2jellyfin)** (and similar
+  scripts) use the Plex API + Jellyfin API to copy "watched" / "in progress"
+  status per user, matching items by title/year.
+- **Not officially supported** by either project — matching isn't perfect for
+  obscure or oddly-named titles, and both servers must be running
+  simultaneously during the copy (don't decommission Plex until this step is
+  done, if you want watch history preserved).
+- Treat this as optional: skip it if you're fine with Jellyfin starting with a
+  clean watch history.
