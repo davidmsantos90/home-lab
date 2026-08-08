@@ -57,6 +57,11 @@ services:
       - PGID=1000
       - TZ=${TZ}
       - DELUGE_LOGLEVEL=error
+      # Persisted (bind-mounted) location for pip packages needed by plugins
+      # (e.g. YaRSS2) whose bundled/vendored deps are incompatible with this
+      # image's Python version. Installing into /config survives container
+      # recreation/image updates, unlike the image's own site-packages.
+      - PYTHONPATH=/config/python-libs
     volumes:
       - ${HOME_LAB_DIR:-.}/config:/config
       - ${DOWNLOADS_PATH:-${HOME_LAB_DIR:-.}/downloads}:/downloads
