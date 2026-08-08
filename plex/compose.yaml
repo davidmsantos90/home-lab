@@ -49,6 +49,9 @@ services:
     image: ${IMAGE_URL}
     network_mode: service:tailscale
     container_name: app-${SERVICE}
+    # Cap CPU usage so library scans/analysis/transcoding can't starve other
+    # services (e.g. NPM) on this host's limited core count.
+    cpus: ${PLEX_CPU_LIMIT:-2.0}
     environment:
       - PUID=1000
       - PGID=1000

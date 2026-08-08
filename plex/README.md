@@ -17,6 +17,7 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/plex/.env.example) t
 - `PLEX_CLAIM` (for first run)
 - `HOME_LAB_DIR` (base dir for config/state; defaults to `.`)
 - `PLEX_MEDIA_PATH` (your media library location — set this, no sensible default)
+- `PLEX_CPU_LIMIT` (max CPU cores for Plex; defaults to `2.0` — caps library scans/analysis/transcoding so they can't starve other services)
 
 ## Startup
 
