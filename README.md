@@ -258,9 +258,12 @@ NPM default credentials (change on first login):
 │  homelab bridge (192.168.100.0/24)              │
 │  gateway: 192.168.100.1 (host)                  │
 │                                                  │
+│  tailscale-npm (NPM sidecar) → 192.168.100.5    │
+│  tailscale-wg-easy → 192.168.100.4              │
+│  wg-easy → 192.168.100.9                        │
 │  tailscale-pihole, tailscale-immich,            │
 │  tailscale-portainer, tailscale-deluge,         │
-│  tailscale-plex, tailscale-npm (NPM sidecar)    │
+│  tailscale-plex (dynamic IPs, unpinned)         │
 └─────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────┐

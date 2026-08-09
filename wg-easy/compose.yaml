@@ -47,8 +47,10 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - wg_easy_internal
-      - homelab
+      wg_easy_internal: {}
+      homelab:
+        ipv4_address: 192.168.100.4    # Static homelab IP so it never collides with
+                                        # other services' pinned/dynamic IPs (e.g. NPM's .5)
     restart: unless-stopped
 
   dnsmasq:
@@ -97,8 +99,10 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      - wg_easy_internal
-      - homelab
+      wg_easy_internal: {}
+      homelab:
+        ipv4_address: 192.168.100.9    # Static homelab IP so it never collides with
+                                        # other services' pinned/dynamic IPs (e.g. NPM's .5)
     restart: unless-stopped
 
   wg-easy-hooks-bootstrap:
