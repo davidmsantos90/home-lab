@@ -499,6 +499,20 @@ If `STATUS` shows `Created` (not `Exited (0)`), force it to actually run:
 docker compose -f wg-easy/compose.yaml up -d --force-recreate wg-easy-hooks-bootstrap
 ```
 
+### Android VPN client can reach raw IPs but domains time out (client-side, not a bug)
+
+If `curl`/browsing a raw translated IP (e.g. `http://10.200.0.5:81`) works over
+the VPN but `*.pimlicoa.duckdns.org` domains time out, and `nslookup
+<domain> 10.200.0.1` from the phone (e.g. via Termux) resolves correctly,
+this is **not** a server-side bug — it's Android's **Private DNS**
+("DNS-over-TLS") setting. When set to `Automatic`, Android opportunistically
+tries DoT (port 853) against the VPN-supplied DNS server first; since
+dnsmasq doesn't support DoT, Android stalls trying that before falling back
+to plain DNS, often long enough to trigger a client/app-level timeout.
+
+**Fix**: on the Android device, go to **Settings → Network & Internet →
+Private DNS** and set it to **Off** (at least while connected to the VPN).
+
 ## Syncing environment files to the Raspberry Pi
 
 To copy every local `.env` file to the matching service directory on `pi@little-pi4`, run:
