@@ -429,6 +429,55 @@ If you do need to touch just the sidecar (as we did to apply a pinned
 `mac_address`), immediately follow up with `./lab.sh fix-netns <service>` (or
 just `./lab.sh restart <service>`).
 
+### VPN clients can't resolve any domain: dnsmasq DNAT points at `127.0.0.1`
+
+**Symptom**: Connected to the wg-easy VPN (or full-tunnel), but *no* domain
+resolves — not just `*.pimlicoa.duckdns.org`, but every domain, including
+plain internet sites. Direct IP access (e.g. `curl http://10.200.0.5:81`)
+still works fine; only DNS is broken.
+
+**Root cause**: `wg-easy-hooks-bootstrap` (the container that automatically
+configures wg-easy's `PostUp`/`PostDown` iptables rules on every
+`docker compose up`) runs on the minimal `curlimages/curl` image, which has
+**no Docker CLI or socket** — so its old method of finding dnsmasq's IP
+(`docker inspect dnsmasq-wg-easy ...`) always failed silently inside that
+container, permanently falling back to a hardcoded `127.0.0.1` (wg-easy's
+own loopback — a dead end, since dnsmasq runs in a different container).
+This bug was masked whenever the fix was applied by re-running
+`sh bootstrap-hooks.sh` directly **on the host** (which does have a working
+`docker` CLI), but reappeared every time the `wg-easy` stack was recreated
+via `docker compose up`/`./lab.sh restart wg-easy` automatically re-running
+the bootstrap container.
+
+**Fix**: `bootstrap-hooks.sh` now resolves dnsmasq's IP via `getent hosts
+dnsmasq-wg-easy` when running inside the bootstrap container (using Docker's
+embedded DNS over the shared `wg_easy_internal` network, which needs no
+extra tooling), and only falls back to `docker inspect` when run manually on
+the host. It also now fails loudly (`exit 1`) instead of silently defaulting
+to a broken `127.0.0.1`, so a resolution failure is visible in
+`docker compose logs wg-easy-hooks-bootstrap` instead of causing a silent,
+confusing VPN DNS outage.
+
+**Diagnosis** — confirm the installed NAT rule points at the wrong IP:
+
+```bash
+docker exec wg-easy iptables -t nat -S | grep -E "5353|dport 53"
+```
+
+If you see `--to-destination 127.0.0.1:5353` instead of dnsmasq's actual
+container IP (`docker inspect dnsmasq-wg-easy -f
+'{{.NetworkSettings.Networks.wg_easy_bridge.IPAddress}}'`), this is the bug.
+
+**Manual recovery** (if you hit this on an older checkout before pulling the
+fix): re-run the hook on the host, then cycle wg-easy so the corrected rule
+is actually installed (updating the API config alone does **not** reapply
+`PostUp`/`PostDown` — only bringing the WireGuard interface down/up does):
+
+```bash
+cd wg-easy && sh bootstrap-hooks.sh
+./lab.sh restart wg-easy
+```
+
 ## Syncing environment files to the Raspberry Pi
 
 To copy every local `.env` file to the matching service directory on `pi@little-pi4`, run:

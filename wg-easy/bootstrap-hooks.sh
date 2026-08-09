@@ -67,12 +67,31 @@ if ! curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig" >/de
   exit 1
 fi
 
-# Resolve dnsmasq container IP dynamically
-echo "Resolving dnsmasq container IP..."
-DNSMASQ_IP=$(docker inspect dnsmasq-wg-easy -f '{{.NetworkSettings.Networks.wg_easy_bridge.IPAddress}}' 2>/dev/null || echo "")
+# Resolve dnsmasq container IP dynamically.
+#
+# When this script runs as the "wg-easy-hooks-bootstrap" container (the
+# normal, automatic path on every `docker compose up`), it shares the
+# "wg_easy_internal" Docker network with dnsmasq but has no Docker socket
+# or CLI available (curlimages/curl is a minimal image) — `docker inspect`
+# would always fail silently here, previously causing this to permanently
+# fall back to the dead-end 127.0.0.1, breaking VPN DNS interception on
+# every fresh recreate. Use `getent hosts`, which resolves via Docker's
+# embedded DNS over the shared network and works with no extra tooling.
+#
+# When run manually on the host (e.g. `sh bootstrap-hooks.sh`, without
+# /.dockerenv), that embedded DNS isn't reachable, so fall back to
+# `docker inspect` there instead.
+if [ -f "/.dockerenv" ]; then
+  echo "Resolving dnsmasq container IP via Docker embedded DNS..."
+  DNSMASQ_IP=$(getent hosts dnsmasq-wg-easy 2>/dev/null | awk '{print $1}' | head -n1 || echo "")
+else
+  echo "Resolving dnsmasq container IP via docker inspect..."
+  DNSMASQ_IP=$(docker inspect dnsmasq-wg-easy -f '{{.NetworkSettings.Networks.wg_easy_bridge.IPAddress}}' 2>/dev/null || echo "")
+fi
 if [ -z "$DNSMASQ_IP" ]; then
-  echo "Warning: Could not resolve dnsmasq container IP, DNS interception may not work" >&2
-  DNSMASQ_IP="127.0.0.1"
+  echo "ERROR: Could not resolve dnsmasq container IP — DNS interception would break silently. Refusing to continue." >&2
+  rm -f "$COOKIES_FILE"
+  exit 1
 fi
 echo "Using dnsmasq IP: $DNSMASQ_IP"
 
