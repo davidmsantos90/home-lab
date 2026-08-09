@@ -6,13 +6,12 @@ BitTorrent client stack with web UI and torrent ports exposed locally.
 
 - Docker + Docker Compose v2
 - Shared external `homelab` network
-- Tailscale auth key
 
 ## Environment variables
 
 Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/deluge/.env.example) to `.env` and set:
 
-- `TS_AUTHKEY`, `TZ`
+- `TZ`
 - `HOME_LAB_DIR` (base dir for config/state/downloads)
 - `DOWNLOADS_PATH` (optional override for downloads location)
 - `SERVICEPORT` (default `8112`)
@@ -34,7 +33,7 @@ connections from native thin-client apps (Deluge GTK/console UI, mobile
 apps, etc.), same as a locally-run instance would.
 
 In the native app, choose "Connect to daemon" / add a host:
-- Host: this machine's LAN IP or Tailscale hostname
+- Host: this machine's LAN IP or NPM-routed domain
 - Port: `DAEMON_PORT` (default `58846` — **not** the web UI port)
 
 Note: the daemon's login is separate from the web UI password. The web UI

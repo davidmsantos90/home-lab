@@ -13,16 +13,14 @@ networks:
     ipam:
       config:
         - subnet: 192.168.100.0/24
-          gateway: 192.168.100.1   # Stable gateway — use this in NPM for host services
+          gateway: 192.168.100.1
 
-  # Macvlan gives containers a real IP on your LAN.
-  # Used by NPM so it owns 192.168.1.10:80/443/81 without conflicting with the host.
   macvlan:
     name: macvlan
     driver: macvlan
     driver_opts:
-      parent: eth0       # Host interface connected to your LAN
+      parent: eth0
     ipam:
       config:
         - subnet: 192.168.1.0/24
-          ip_range: 192.168.1.4/30  # Docker assigns only from .4-.7, NPM gets .5
+          ip_range: 192.168.1.4/30

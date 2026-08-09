@@ -148,7 +148,7 @@ After hooks are applied:
    - Connection succeeds ✓
 
 2. **From LAN (192.168.1.0/24, non-VPN)**:
-   - DNS still resolves to 192.168.1.5 (NPM's physical macvlan address)
+   - DNS still resolves to NPM's LAN-facing address
    - Direct connection to 192.168.1.5 works as before ✓
 
 3. **From Tailnet**:
@@ -236,7 +236,7 @@ before the NPM and NETMAP rules (see the corrected hook strings above).
 ### NPM still unreachable from overlapping VPN clients
 - Verify DNAT/SNAT rules: `docker exec wg-easy iptables -t nat -S | grep "10.200.0.5"`
 - Ensure rules are in correct order (DNS rules, then NPM rules, then NETMAP): `docker exec wg-easy iptables -t nat -S`
-- Check NPM's homelab IP: `docker exec tailscale-npm ip addr show` (should have 192.168.100.5)
+- Check NPM's homelab IP: `docker exec app-nginx-proxy-manager ip addr show` (should have 192.168.100.5)
 
 ### Performance issues / slow DNS
 - Check dnsmasq cache size: `grep cache-size /path/to/wg-easy/dnsmasq.conf` (default: 150)

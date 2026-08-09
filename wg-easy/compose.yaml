@@ -1,12 +1,3 @@
-configs:
-  ts-serve:
-    content: |
-      {"TCP":{"443":{"HTTPS":true}},
-      "Web":{"$${TS_CERT_DOMAIN}:443":
-          {"Handlers":{"/":
-          {"Proxy":"http://wg-easy:51821"}}}},
-      "AllowFunnel":{"$${TS_CERT_DOMAIN}:443":false}}
-
 services:
   duckdns:
     image: lscr.io/linuxserver/duckdns:latest
@@ -16,41 +7,6 @@ services:
       SUBDOMAINS: pimlicoa
       TOKEN: ${DUCKDNS_TOKEN}
       LOG_FILE: "false"
-    restart: unless-stopped
-
-  tailscale:
-    image: tailscale/tailscale:latest
-    container_name: tailscale-wg-easy
-    hostname: wg-easy
-    environment:
-      TS_AUTHKEY: ${TS_AUTHKEY}
-      TS_STATE_DIR: /var/lib/tailscale
-      TS_SERVE_CONFIG: /config/serve.json
-      TS_USERSPACE: "false"
-      TS_ENABLE_HEALTH_CHECK: "true"
-      TS_LOCAL_ADDR_PORT: 127.0.0.1:41234
-      TS_AUTH_ONCE: "true"
-    configs:
-      - source: ts-serve
-        target: /config/serve.json
-    volumes:
-      - ${HOME_LAB_DIR:-.}/ts/config:/config
-      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    cap_add:
-      - NET_ADMIN
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
-      interval: 1m
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      wg_easy_internal: {}
-      homelab:
-        ipv4_address: 192.168.100.4    # Static homelab IP so it never collides with
-                                        # other services' pinned/dynamic IPs (e.g. NPM's .5)
     restart: unless-stopped
 
   dnsmasq:
