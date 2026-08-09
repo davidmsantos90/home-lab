@@ -276,6 +276,27 @@ NPM default credentials (change on first login):
 
 Each service's `compose.yaml` also defines a **private internal network** (e.g. `immich_internal`) for intra-service communication (immich ↔ postgres ↔ redis). Those containers are not reachable from outside.
 
+### Accessing admin UIs over the wg-easy VPN
+
+Connected VPN clients (`10.200.0.0/24`) reach select homelab-bridge services
+directly at dedicated translated IPs, via host-exception NAT rules applied
+by `wg-easy/bootstrap-hooks.sh` (see the ordering note in that script — these
+exceptions must come before the broad NETMAP subnet translation):
+
+| Service           | Translated VPN IP | Real homelab-bridge IP | Port  |
+|-------------------|--------------------|-------------------------|-------|
+| NPM admin UI      | `10.200.0.5`       | `192.168.100.5`         | `81`  |
+| wg-easy admin UI  | `10.200.0.9`       | `192.168.100.9`         | `51821` |
+
+e.g. `http://10.200.0.9:51821` reaches wg-easy's own management UI while
+connected to the VPN. This is only reachable by authenticated WireGuard
+peers, never the public internet — no port is forwarded on the router for
+`51821`, and `wg-easy`'s own `51821/tcp` port is bound to
+`127.0.0.1:51821` on the host (see `wg-easy/compose.yaml`), not exposed
+externally at all. Access relies entirely on being on the VPN and having
+wg-easy's admin credentials (`WG_EASY_ADMIN_USERNAME`/`WG_EASY_ADMIN_PASSWORD`
+in `wg-easy/.env`) — use a long, unique password.
+
 ## Migrating Deluge and Plex from host to Docker
 
 Both services can be migrated without losing data by pointing Docker volumes at the existing host paths.
