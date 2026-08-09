@@ -42,7 +42,7 @@ ensure_networks() {
 
 # ── Commands ──────────────────────────────────────────────────────────────────
 
-cmd_launch() {
+cmd_start() {
     local svc=$1
     if is_running "$svc"; then
         warn "$svc" "Already running — skipping"
@@ -107,25 +107,84 @@ cmd_status() {
     fi
 }
 
+# Detects and fixes "stale network namespace" bugs: most services here run a
+# `tailscale-${SERVICE}` sidecar plus an `app-${SERVICE}*` container attached
+# to it via `network_mode: service:tailscale`. If the sidecar container is
+# ever recreated (new container ID = new network namespace) without also
+# recreating the dependent app container, the app container is silently left
+# attached to the old, now-orphaned namespace — it stays "healthy" and its
+# own loopback/ports still work, but it becomes completely unreachable from
+# everywhere else (LAN, Tailnet, VPN), since it's no longer actually on the
+# sidecar's real network. See "Troubleshooting" in the top-level README for
+# the full story behind this.
+cmd_fix_netns() {
+    local svc=$1
+    if ! is_running "$svc"; then
+        warn "$svc" "Not running — skipping"
+        return 0
+    fi
+
+    info "$svc" "Checking network namespace consistency..."
+    local ids stale=false
+    ids=$(cd "$SCRIPT_DIR/$svc" && docker compose ps -q)
+
+    for id in $ids; do
+        local netmode
+        netmode=$(docker inspect "$id" --format '{{.HostConfig.NetworkMode}}')
+        case "$netmode" in
+            container:*)
+                local target_id="${netmode#container:}"
+                if ! docker inspect "$target_id" &>/dev/null; then
+                    warn "$svc" "$(docker inspect "$id" --format '{{.Name}}' | sed 's#^/##') references a network_mode target that no longer exists — run '$0 restart $svc'"
+                    continue
+                fi
+
+                local my_pid target_pid my_ns target_ns name
+                my_pid=$(docker inspect "$id" --format '{{.State.Pid}}')
+                target_pid=$(docker inspect "$target_id" --format '{{.State.Pid}}')
+                my_ns=$(sudo readlink "/proc/$my_pid/ns/net" 2>/dev/null)
+                target_ns=$(sudo readlink "/proc/$target_pid/ns/net" 2>/dev/null)
+                name=$(docker inspect "$id" --format '{{.Name}}' | sed 's#^/##')
+
+                if [ -n "$my_ns" ] && [ -n "$target_ns" ] && [ "$my_ns" != "$target_ns" ]; then
+                    warn "$svc" "$name is attached to a stale network namespace ($my_ns != $target_ns) — recreating"
+                    stale=true
+                fi
+                ;;
+        esac
+    done
+
+    if $stale; then
+        (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate)
+        success "$svc" "Recreated to fix stale network namespace(s)"
+    else
+        success "$svc" "Network namespaces OK"
+    fi
+}
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
 usage() {
     echo -e "${BOLD}Usage:${RESET} $0 <command> [service...]"
     echo ""
     echo -e "${BOLD}Commands:${RESET}"
-    echo "  launch   Start service(s) (skips if already running)"
-    echo "  stop     Stop service(s) (skips if already stopped)"
-    echo "  restart  Restart service(s) (starts if stopped)"
-    echo "  update   Pull latest images and restart if running"
-    echo "  status   Show running state of service(s)"
+    echo "  start      Start service(s) (skips if already running)"
+    echo "  stop       Stop service(s) (skips if already stopped)"
+    echo "  restart    Restart service(s) (starts if stopped)"
+    echo "  update     Pull latest images and restart if running"
+    echo "  status     Show running state of service(s)"
+    echo "  fix-netns  Detect/fix a stale network namespace on the app"
+    echo "             container after its tailscale sidecar was recreated"
+    echo "             on its own (see Troubleshooting in README.md)"
     echo ""
     echo -e "${BOLD}Services:${RESET} ${ALL_SERVICES[*]}"
     echo ""
     echo -e "${BOLD}Examples:${RESET}"
     echo "  $0 status                   # status of all services"
-    echo "  $0 launch pihole            # start only pihole"
+    echo "  $0 start pihole             # start only pihole"
     echo "  $0 update immich jellyfin   # update two services"
     echo "  $0 stop                     # stop all services"
+    echo "  $0 fix-netns nginx-proxy-manager  # fix a stale netns after a sidecar recreate"
 }
 
 if [ $# -lt 1 ]; then
@@ -136,7 +195,7 @@ COMMAND=$1; shift
 
 # Validate command
 case "$COMMAND" in
-    launch|stop|restart|update|status) ;;
+    start|stop|restart|update|status|fix-netns) ;;
     help|--help|-h) usage; exit 0 ;;
     *) error "lab" "Unknown command: $COMMAND"; usage; exit 1 ;;
 esac
@@ -160,10 +219,11 @@ done
 # Run command for each target
 for svc in "${TARGETS[@]}"; do
     case "$COMMAND" in
-        launch)  cmd_launch  "$svc" ;;
-        stop)    cmd_stop    "$svc" ;;
-        restart) cmd_restart "$svc" ;;
-        update)  cmd_update  "$svc" ;;
-        status)  cmd_status  "$svc" ;;
+        start)     cmd_start     "$svc" ;;
+        stop)      cmd_stop      "$svc" ;;
+        restart)   cmd_restart   "$svc" ;;
+        update)    cmd_update    "$svc" ;;
+        status)    cmd_status    "$svc" ;;
+        fix-netns) cmd_fix_netns "$svc" ;;
     esac
 done

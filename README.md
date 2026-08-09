@@ -367,6 +367,65 @@ docker compose pull
 docker compose up -d
 ```
 
+## Troubleshooting
+
+### Service unreachable after recreating a `tailscale` sidecar: "stale network namespace"
+
+**Symptom**: A service (NPM, Plex, Immich, etc.) becomes completely unreachable
+— from LAN, Tailnet, and VPN alike — even though:
+- The app container shows `healthy` and has been running for a while.
+- Its process is confirmed listening on the right port (e.g. `0.0.0.0:81`),
+  and works perfectly via `curl 127.0.0.1:<port>` from inside the container.
+- `iptables`, DNS, and the app's own config all look completely normal.
+- Connection attempts get an immediate `Connection refused` (a TCP `RST`),
+  not a timeout — even from other containers on the same Docker network, or
+  from the Docker host itself.
+
+**Root cause**: every service here runs a `tailscale-${SERVICE}` sidecar
+container that owns the actual network attachments (LAN macvlan, the shared
+`homelab` bridge, Tailscale), and the app container (`app-${SERVICE}`) joins
+it via `network_mode: service:tailscale` — sharing its network namespace
+instead of having its own.
+
+`network_mode: service:X` binds to whatever container `X` *is* at the moment
+the dependent container is created. If you later recreate the `tailscale`
+sidecar on its own (e.g. `docker compose up -d --force-recreate tailscale`,
+to apply a new `mac_address`, image update, etc.) **without** also recreating
+the app container, Docker creates a brand-new network namespace for the new
+sidecar — but the still-running app container keeps referencing the *old,
+now-orphaned* namespace. It keeps working perfectly on its own loopback
+(`127.0.0.1`), but it's no longer actually attached to any real network
+anyone else can reach.
+
+**Diagnosis** — confirm the two containers' network namespaces differ:
+
+```bash
+docker inspect app-<service> --format '{{.State.Pid}}' | xargs -I{} sudo readlink /proc/{}/ns/net
+docker inspect tailscale-<service> --format '{{.State.Pid}}' | xargs -I{} sudo readlink /proc/{}/ns/net
+```
+
+If the two `net:[...]` values differ, this is the bug.
+
+**Fix**: recreate the app container so it re-attaches to the current
+sidecar's namespace:
+
+```bash
+./lab.sh fix-netns <service>
+```
+
+This checks every container in the service for a stale `network_mode:
+container:X` reference and force-recreates the whole service if any are
+found. You can also run it proactively any time as a health check — it's a
+no-op (just prints "Network namespaces OK") if nothing is stale.
+
+**Prevention**: never target a single container within a multi-container
+service for recreation (e.g. raw `docker compose up -d --force-recreate
+tailscale`). Prefer `./lab.sh restart <service>`, which tears down and
+recreates *all* of the service's containers together, so this can't happen.
+If you do need to touch just the sidecar (as we did to apply a pinned
+`mac_address`), immediately follow up with `./lab.sh fix-netns <service>` (or
+just `./lab.sh restart <service>`).
+
 ## Syncing environment files to the Raspberry Pi
 
 To copy every local `.env` file to the matching service directory on `pi@little-pi4`, run:
