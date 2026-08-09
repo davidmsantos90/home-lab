@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ALL_SERVICES=(nginx-proxy-manager pihole immich portainer deluge plex jellyfin)
+ALL_SERVICES=(nginx-proxy-manager pihole immich portainer deluge plex jellyfin wg-easy)
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -40,6 +40,24 @@ ensure_networks() {
     fi
 }
 
+# Some services (currently only wg-easy) have a one-shot "*-hooks-bootstrap"
+# container that configures the main app via its API once its dependency is
+# healthy (depends_on: condition: service_healthy). `docker compose up -d`
+# can return before that dependency actually reports healthy, leaving the
+# one-shot container stuck in "Created" and never actually executed —
+# silently skipping its setup with no error. Force-recreate any such
+# container after bringing the service up so it's guaranteed to actually
+# run, rather than relying on depends_on timing.
+run_bootstrap_hooks() {
+    local svc=$1
+    local hook_services
+    hook_services=$(cd "$SCRIPT_DIR/$svc" && docker compose config --services 2>/dev/null | grep -- '-hooks-bootstrap$' || true)
+    for hook in $hook_services; do
+        info "$svc" "Running one-shot hook: $hook..."
+        (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate "$hook")
+    done
+}
+
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 cmd_start() {
@@ -51,6 +69,7 @@ cmd_start() {
     ensure_networks
     info "$svc" "Starting..."
     (cd "$SCRIPT_DIR/$svc" && docker compose up -d)
+    run_bootstrap_hooks "$svc"
     success "$svc" "Started"
 }
 
@@ -75,6 +94,7 @@ cmd_restart() {
     fi
     ensure_networks
     (cd "$SCRIPT_DIR/$svc" && docker compose up -d)
+    run_bootstrap_hooks "$svc"
     success "$svc" "Restarted"
 }
 
@@ -90,6 +110,7 @@ cmd_update() {
         info "$svc" "Applying update..."
         ensure_networks
         (cd "$SCRIPT_DIR/$svc" && docker compose up -d)
+        run_bootstrap_hooks "$svc"
         success "$svc" "Updated and restarted"
     else
         success "$svc" "Images pulled — service is stopped, not starting"

@@ -478,6 +478,27 @@ cd wg-easy && sh bootstrap-hooks.sh
 ./lab.sh restart wg-easy
 ```
 
+**A second, related pitfall**: `wg-easy-hooks-bootstrap` is a one-shot
+container gated by `depends_on: condition: service_healthy` on `wg-easy`.
+`docker compose up -d` can return before that health check actually passes,
+leaving the hook container stuck in a `Created` (never-started) state —
+silently skipping the whole `PostUp`/DNS-interception setup with no error at
+all (`docker logs wg-easy-hooks-bootstrap` shows nothing). `./lab.sh start
+<svc>` and `./lab.sh restart <svc>` now explicitly force-recreate any
+`*-hooks-bootstrap` service after bringing a service up, so this can't
+silently no-op — but if you ever invoke `docker compose up -d` directly
+(bypassing `lab.sh`), check with:
+
+```bash
+docker ps -a --filter name=wg-easy-hooks-bootstrap --format 'table {{.Names}}\t{{.Status}}'
+```
+
+If `STATUS` shows `Created` (not `Exited (0)`), force it to actually run:
+
+```bash
+docker compose -f wg-easy/compose.yaml up -d --force-recreate wg-easy-hooks-bootstrap
+```
+
 ## Syncing environment files to the Raspberry Pi
 
 To copy every local `.env` file to the matching service directory on `pi@little-pi4`, run:
