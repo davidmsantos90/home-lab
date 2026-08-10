@@ -134,7 +134,7 @@ Accepts WireGuard traffic on port 51820 and allows forwarding through VPN tunnel
 - **Domain rewrite**: `nginx.pimlicoa.duckdns.org` → `10.200.0.5` (for VPN clients only)
 - **Upstream DNS**: Forwards all other queries to Pi-hole at 10.200.0.60
 
-**Result**: VPN clients get translated address for NPM, while LAN/Tailnet clients still resolve to physical addresses.
+**Result**: VPN clients get translated address for NPM, while LAN clients still resolve to physical addresses.
 
 ## Accessing Services from VPN
 
@@ -146,16 +146,12 @@ After hooks are applied:
    - DNAT/SNAT rules translate to 192.168.100.5 (NPM's homelab IP)
    - NPM responds, SNAT translates back to 10.200.0.5
    - Connection succeeds ✓
+   - NPM's admin UI is reachable the same way, at `10.200.0.5:81` (the DNAT rule
+     translates the whole IP, not just proxy ports)
 
 2. **From LAN (192.168.1.0/24, non-VPN)**:
    - DNS still resolves to 192.168.1.5 (NPM's physical macvlan address)
    - Direct connection to 192.168.1.5 works as before ✓
-
-3. **From Tailnet**:
-   - Resolves via Pi-hole to 192.168.1.5 (no DNS interception for non-VPN)
-   - Tailscale routes through encrypted tunnel
-   - NPM's Tailscale sidecar responds with static homelab IP
-   - Connection succeeds ✓
 
 ## Testing the Setup
 
@@ -236,7 +232,7 @@ before the NPM and NETMAP rules (see the corrected hook strings above).
 ### NPM still unreachable from overlapping VPN clients
 - Verify DNAT/SNAT rules: `docker exec wg-easy iptables -t nat -S | grep "10.200.0.5"`
 - Ensure rules are in correct order (DNS rules, then NPM rules, then NETMAP): `docker exec wg-easy iptables -t nat -S`
-- Check NPM's homelab IP: `docker exec tailscale-npm ip addr show` (should have 192.168.100.5)
+- Check NPM's homelab IP: `docker exec nginx-proxy-manager ip addr show` (should have 192.168.100.5)
 
 ### Performance issues / slow DNS
 - Check dnsmasq cache size: `grep cache-size /path/to/wg-easy/dnsmasq.conf` (default: 150)

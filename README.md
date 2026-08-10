@@ -104,7 +104,7 @@ Start **nginx-proxy-manager** first (it needs the macvlan network), then the res
 
 ```bash
 cd nginx-proxy-manager
-# Edit .env — set TS_AUTHKEY, TZ, and verify NPM_IP matches your macvlan range
+# Edit .env — set TZ and verify NPM_IP matches your macvlan range
 docker compose up -d
 
 # Then for each other service:
@@ -148,9 +148,9 @@ sudo ss -tulnp | grep :53
    docker compose up -d
    ```
 
-5. Open `https://wg-easy.<tailnet>.ts.net` from a device on the Tailnet, sign in with the credentials in `.env`, and create a client profile. The service name can be changed in [`wg-easy/compose.yaml`](wg-easy/compose.yaml) by changing the Tailscale container `hostname`.
+5. Open the admin UI at `http://127.0.0.1:51821` on the Docker host (or `http://10.200.0.9:51821` once connected via the VPN — see below), sign in with the credentials in `.env`, and create a client profile.
 
-In this stack, `wg-easy` and `tailscale` run as independent containers (no shared network namespace), and both attach to `homelab`. Tailscale Serve proxies to `wg-easy` over Docker networking with Funnel disabled. The only public service is the authenticated WireGuard UDP endpoint. The web UI is also available locally at `http://127.0.0.1:51821` on the host when needed. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
+`wg-easy` attaches directly to `homelab` with its own pinned IP; the only public service is the authenticated WireGuard UDP endpoint. The web UI is not exposed publicly — it's reachable locally at `http://127.0.0.1:51821` on the host, and to already-connected VPN clients at `http://10.200.0.9:51821`. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
 
 If you previously ran an older `wg-easy` compose with a different internal network label and get a Docker network label mismatch error, remove the stale network once and start again:
 
@@ -193,6 +193,7 @@ Because the Tailscale container has `ports:` bound to `0.0.0.0` on the host, you
 | Portainer | `http://<host-ip>:9000` |
 | Deluge | `http://<host-ip>:8112` |
 | NPM admin | `http://192.168.1.5:81` |
+| wg-easy admin | `http://127.0.0.1:51821` (host-local only) |
 
 You can **also** route through NPM using your DuckDNS subdomains for a consistent URL across LAN and Tailnet (see NPM section below).
 
@@ -202,11 +203,11 @@ You can **also** route through NPM using your DuckDNS subdomains for a consisten
 | Local domain via NPM | `https://immich.pimlicoa.duckdns.org` | ❌ | ✅ |
 | Tailnet | `https://immich.<tailnet>.ts.net` | ✅ | ❌ |
 
+> **Note**: `nginx-proxy-manager` and `wg-easy` are exceptions to the sidecar pattern above — neither runs a Tailscale sidecar. NPM attaches directly to `macvlan`/`homelab` with its own pinned IPs, and wg-easy attaches directly to `homelab`. Reach NPM's admin UI over LAN (`http://192.168.1.5:81`) or through the wg-easy VPN (`http://10.200.0.5:81`); reach wg-easy's own admin UI locally (`http://127.0.0.1:51821`) or through its own VPN (`http://10.200.0.9:51821`).
+
 ## Nginx Proxy Manager
 
 NPM lives on a **macvlan** network, giving it a dedicated LAN IP (`192.168.1.5`) so it can own ports 80/443 without conflicting with the host. It is also on the `homelab` bridge to reach other services.
-
-> **Note on Tailscale Serve**: NPM's Tailscale sidecar intentionally has no `TS_SERVE_CONFIG` — Tailscale Serve would claim port 443, conflicting with NPM's own HTTPS listener. Access NPM's admin UI on the Tailnet via its raw Tailscale IP: `http://<tailscale-ip>:81` (run `tailscale ip -4` on the host).
 
 ### NPM upstream targets
 
@@ -258,8 +259,7 @@ NPM default credentials (change on first login):
 │  homelab bridge (192.168.100.0/24)              │
 │  gateway: 192.168.100.1 (host)                  │
 │                                                  │
-│  tailscale-npm (NPM sidecar) → 192.168.100.5    │
-│  tailscale-wg-easy → 192.168.100.4              │
+│  nginx-proxy-manager → 192.168.100.5            │
 │  wg-easy → 192.168.100.9                        │
 │  tailscale-pihole, tailscale-immich,            │
 │  tailscale-portainer, tailscale-deluge,         │
@@ -270,7 +270,7 @@ NPM default credentials (change on first login):
 │  macvlan (192.168.1.0/24, range .4-.7)          │
 │  parent: eth0                                    │
 │                                                  │
-│  tailscale-npm → 192.168.1.5                    │
+│  nginx-proxy-manager → 192.168.1.5              │
 └─────────────────────────────────────────────────┘
 ```
 
@@ -635,8 +635,8 @@ The script preserves paths relative to this repository, creates the destination 
 
 - `PIHOLE_WEBPASSWORD` in `pihole/.env`
 - `DB_PASSWORD` in `immich/.env`
-- `TS_AUTHKEY` in every `.env` file
-- `DUCKDNS_TOKEN`, `TS_AUTHKEY`, `WG_EASY_HOST`, and `WG_EASY_ADMIN_PASSWORD` in `wg-easy/.env`
+- `TS_AUTHKEY` in every `.env` file that still runs a Tailscale sidecar (not `wg-easy/.env` or `nginx-proxy-manager/.env`)
+- `DUCKDNS_TOKEN`, `WG_EASY_HOST`, and `WG_EASY_ADMIN_PASSWORD` in `wg-easy/.env`
 
 Do **not** commit `.env` files to version control. Add them to `.gitignore`:
 

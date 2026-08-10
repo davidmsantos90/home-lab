@@ -1,13 +1,13 @@
 # wg-easy
 
-WireGuard VPN management stack with automatic DuckDNS updates and optional Tailnet-only UI access.
+WireGuard VPN management stack with automatic DuckDNS updates.
 
 ## Architecture
 
-- **Dual-network design**: `wg-easy` and `tailscale` attach to both `wg_easy_internal` and `homelab` networks for interoperability
+- `wg-easy` attaches to both `wg_easy_internal` and `homelab` networks for interoperability
 - **Dynamic egress interface (RFC-002)**: Automatically detects the correct outbound interface for NAT rules, preventing handshake failures when containers are on multiple networks
-- **Tailscale Serve**: Private HTTPS access to the UI (no public exposure)
 - **DuckDNS**: Dynamic DNS for the WireGuard UDP endpoint
+- Admin UI is bound to `127.0.0.1:51821` on the host only (no public exposure), and is additionally reachable by authenticated VPN clients at a dedicated translated IP (see "Accessing admin UIs over the wg-easy VPN" in the root [README.md](/Users/davsantos/github/misc/home-lab/README.md))
 
 ## Dependencies
 
@@ -15,21 +15,19 @@ WireGuard VPN management stack with automatic DuckDNS updates and optional Tailn
 - Shared external `homelab` network
 - DuckDNS token and domain
 - Router port forward for UDP `51820`
-- Tailscale auth key (for private Tailnet UI)
 
 ## Environment variables
 
 Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/wg-easy/.env.example) to `.env` and set:
 
 - `DUCKDNS_TOKEN`
-- `TS_AUTHKEY`
 - `WG_EASY_HOST` (defaults to `pimlicoa.duckdns.org`)
 - `WG_EASY_ADMIN_USERNAME`, `WG_EASY_ADMIN_PASSWORD`
 - `TZ`
 - `WG_VPN_DNS` (defaults to `10.200.0.1,1.1.1.1`, comma-separated) for new/updated WireGuard client DNS — the first entry must be the VPN gateway address, not Pi-hole directly, so DNS interception (domain rewrites for VPN clients) still applies; additional entries act as a client-side fallback if the gateway/dnsmasq/Pi-hole path is unreachable. See [DNS_INTERCEPTION.md](/Users/davsantos/github/misc/home-lab/wg-easy/DNS_INTERCEPTION.md)
 - `WG_VPN_ALLOWED_IPS` (defaults to `10.200.0.0/24,192.168.1.0/24`) for new/updated client routes
 - `WG_VPN_PERSISTENT_KEEPALIVE` (defaults to `25`) seconds between client keepalive packets; prevents NAT/router mappings from expiring during idle periods (see [Troubleshooting](#troubleshooting))
-- `HOME_LAB_DIR` (defaults to `.`) base directory for Tailscale state and WireGuard config/keys — set this to move this stack's persistent data elsewhere, e.g. an external drive (see the root [README.md](/Users/davsantos/github/misc/home-lab/README.md#relocating-a-services-data-home_lab_dir))
+- `HOME_LAB_DIR` (defaults to `.`) base directory for WireGuard config/keys — set this to move this stack's persistent data elsewhere, e.g. an external drive (see the root [README.md](/Users/davsantos/github/misc/home-lab/README.md#relocating-a-services-data-home_lab_dir))
 
 ### RFC-001 Overlap Subnet Translation (Optional)
 
