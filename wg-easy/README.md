@@ -156,56 +156,57 @@ This exports:
 - effective `PreUp/PostUp/PreDown/PostDown` from live `wg0.conf`
 - current NAT table snapshot
 
-### NPM-specific translation
+### NPM access via generic NETMAP
 
-NPM lives on the `homelab` bridge at `192.168.100.5`, while overlapping VPN
-clients still target it as `10.200.0.5`.
-
-To make that work, the NPM-specific rules must appear **before** the broad
-`NETMAP` rules:
+NPM no longer needs a dedicated NAT exception. Since removing the macvlan
+network, NPM publishes its ports directly on the host and is reachable at
+the Pi's own real LAN IP (`192.168.1.60`). The existing generic NETMAP rule
+(`10.200.0.0/24 → 192.168.1.0/24`) already covers it — overlapping VPN
+clients reach NPM at `10.200.0.60`, translated transparently to
+`192.168.1.60`. Only the wg-easy admin UI needs its own dedicated exception
+rule (see below), since it lives on the `homelab` bridge — a different
+subnet entirely, unreachable via the home-LAN NETMAP rule.
 
 ```sh
-iptables -t nat -A PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5
-iptables -t nat -A POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5
+iptables -t nat -A PREROUTING -d 10.200.0.9/32 -j DNAT --to 192.168.100.9
+iptables -t nat -A POSTROUTING -s 192.168.100.9/32 -j SNAT --to 10.200.0.9
 ```
 
 Why:
-- `DNAT` rewrites the destination so wg-easy sends NPM traffic to the
+- `DNAT` rewrites the destination so wg-easy sends admin-UI traffic to the
   reachable `homelab` IP
-- `SNAT` rewrites the reply so the VPN client still sees `10.200.0.5`
-- the specific NPM rule must run before the subnet-wide `NETMAP` rule, or the
-  broader translation will catch `10.200.0.5` first
-
-If you remove or move NPM, update these two rules and keep the same order in
-both `PostUp` and `PostDown`.
+- `SNAT` rewrites the reply so the VPN client still sees `10.200.0.9`
+- this exception must run before the subnet-wide `NETMAP` rule, or the
+  broader translation would claim `10.200.0.9` first (it's inside the
+  translated subnet)
 
 ### DNS interception for multi-access-path support
 
 **Problem**: Services like NPM need different DNS responses for different client types:
-- LAN clients: resolve to physical IP `192.168.1.5` (direct access via macvlan)
-- Tailnet clients: resolve to physical IP `192.168.1.5` (routed via Tailscale)
-- VPN clients: need translated IP `10.200.0.5` (only reachable via NETMAP/DNAT)
+- LAN clients: resolve to physical IP `192.168.1.60` (direct access)
+- Tailnet clients: resolve to physical IP `192.168.1.60` (routed via Tailscale)
+- VPN clients: need translated IP `10.200.0.60` (only reachable via NETMAP)
 
 **Solution**: dnsmasq DNS proxy intercepts VPN client queries and rewrites responses.
 
 The setup includes:
 - **dnsmasq service** in wg-easy compose: listens on `127.0.0.1:5353`, forwards to Pi-hole
 - **DNS redirect rules** in PostUp hooks: redirect wg0 port 53 to localhost:5353
-- **dnsmasq.conf**: defines domain rewrites (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.5`)
+- **dnsmasq.conf**: defines domain rewrites (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.60`)
 
 When a VPN client queries DNS:
 1. DNS request hits port 53 on wg0
 2. iptables REDIRECT rule sends it to localhost:5353 (dnsmasq)
 3. dnsmasq checks its rewrite rules
 4. If match found, responds with translated address; otherwise forwards to Pi-hole
-5. VPN client receives answer and can route to `10.200.0.5`
+5. VPN client receives answer and can route to `10.200.0.60`
 
 Configure DNS rewrites in [`dnsmasq.conf`](./dnsmasq.conf). A single wildcard
 rule covers the whole domain (and all its subdomains), so any NPM proxy host
 under it — current or future — is translated automatically:
 
 ```
-address=/pimlicoa.duckdns.org/10.200.0.5
+address=/pimlicoa.duckdns.org/10.200.0.60
 ```
 
 Only add a separate, more specific `address=/.../` line if some other
@@ -213,7 +214,7 @@ subdomain must resolve to a *different* address than the wildcard — for
 example, if you later move a service to another machine/IP:
 
 ```
-address=/pimlicoa.duckdns.org/10.200.0.5      # wildcard default
+address=/pimlicoa.duckdns.org/10.200.0.60      # wildcard default
 address=/immich.pimlicoa.duckdns.org/10.200.0.42   # override: immich moved elsewhere
 ```
 
@@ -226,7 +227,7 @@ See [HOOKS_SETUP.md](./HOOKS_SETUP.md) for complete hook configuration including
 ## WireGuard access to other homelab services
 
 From the compose files in this repository, WireGuard clients can reach services outside Tailnet when:
-- the service is bound on the host (`0.0.0.0:<port>`) or has a reachable LAN/macvlan IP
+- the service is bound on the host (`0.0.0.0:<port>`) or has a reachable LAN IP
 - the relevant subnet/host is inside the client AllowedIPs
 
 With the current stack:
@@ -238,7 +239,7 @@ With the current stack:
   - Deluge: `<vpn-view-of-host>:8112`, torrent `6881/tcp+udp`
   - Plex: `<vpn-view-of-host>:32400`
   - Jellyfin: `<vpn-view-of-host>:8096`
-  - NPM: `192.168.1.5` (or translated equivalent when overlapping)
+  - NPM: `192.168.1.60` (or translated equivalent when overlapping)
 - **Not intended over VPN**
   - wg-easy UI host bind is `127.0.0.1:51821` (Tailnet/local host only)
 
@@ -266,9 +267,9 @@ it appears:
   `iptables -A FORWARD -i wg0 -j ACCEPT` (and the matching `-o wg0` rule) that
   accepts all wg0 traffic to any destination, for every client.
 - **Almost everything goes through one IP.** Nearly all homelab services are
-  reverse-proxied through NPM at a single translated address (`10.200.0.5`).
+  reverse-proxied through NPM at a single translated address (`10.200.0.60`).
   NPM routes by HTTP `Host` header, not by source IP or destination port, so
-  scoping a client's `AllowedIPs` down to `10.200.0.5/32` doesn't distinguish
+  scoping a client's `AllowedIPs` down to `10.200.0.60/32` doesn't distinguish
   between individual services — a client that can reach NPM at all can reach
   every proxy host behind it (Plex, Immich, Portainer, etc.), unless NPM's own
   per-proxy-host **Access Lists** feature is also used to restrict by source

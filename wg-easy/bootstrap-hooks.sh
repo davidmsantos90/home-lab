@@ -87,16 +87,72 @@ echo "Using dnsmasq IP: $DNSMASQ_IP"
 # matches a NAT rule (DNAT/NETMAP/REDIRECT), iptables stops evaluating further
 # rules in that chain for that packet. Since the translated subnet
 # (10.200.0.0/24) includes the wg0 gateway address clients use for DNS
-# (10.200.0.1), a NETMAP/NPM rule placed before the DNS rule would catch DNS
+# (10.200.0.1), a NETMAP rule placed before the DNS rule would catch DNS
 # traffic first and prevent it from ever reaching dnsmasq.
 #
-# Likewise, the NPM and wg-easy-admin host exceptions MUST come before the
-# broad NETMAP catch-all below, since their destination IPs (10.200.0.5,
-# 10.200.0.9) fall inside the NETMAP's translated subnet ($T) — NETMAP would
-# otherwise translate them to an unrelated real LAN host (192.168.1.5/.9)
-# instead of routing to the actual homelab-bridge container.
-POST_UP="DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1); T=${WG_TRANSLATED_LAN_SUBNET}; H=${HOME_LAN_SUBNET}; D=${DNSMASQ_IP}; A=${WG_EASY_ADMIN_HOMELAB_IP}; AT=${WG_EASY_ADMIN_TRANSLATED_IP}; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o \"\$DEFAULT_IF\" -j MASQUERADE; modprobe xt_NETMAP || true; iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination \"\$D:5353\"; iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination \"\$D:5353\"; iptables -t nat -A POSTROUTING -d \"\$D/32\" -p udp --dport 5353 -j MASQUERADE; iptables -t nat -A POSTROUTING -d \"\$D/32\" -p tcp --dport 5353 -j MASQUERADE; iptables -t nat -A PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5; iptables -t nat -A POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5; iptables -t nat -A PREROUTING -d \"\$AT/32\" -j DNAT --to \"\$A\"; iptables -t nat -A POSTROUTING -s \"\$A/32\" -j SNAT --to \"\$AT\"; iptables -t nat -A PREROUTING -d \"\$T\" -j NETMAP --to \"\$H\"; iptables -t nat -A POSTROUTING -s \"\$H\" -j NETMAP --to \"\$T\"; iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT;"
-POST_DOWN="DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1); T=${WG_TRANSLATED_LAN_SUBNET}; H=${HOME_LAN_SUBNET}; D=${DNSMASQ_IP}; A=${WG_EASY_ADMIN_HOMELAB_IP}; AT=${WG_EASY_ADMIN_TRANSLATED_IP}; iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o \"\$DEFAULT_IF\" -j MASQUERADE; iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination \"\$D:5353\"; iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination \"\$D:5353\"; iptables -t nat -D POSTROUTING -d \"\$D/32\" -p udp --dport 5353 -j MASQUERADE; iptables -t nat -D POSTROUTING -d \"\$D/32\" -p tcp --dport 5353 -j MASQUERADE; iptables -t nat -D PREROUTING -d 10.200.0.5/32 -j DNAT --to 192.168.100.5; iptables -t nat -D POSTROUTING -s 192.168.100.5/32 -j SNAT --to 10.200.0.5; iptables -t nat -D PREROUTING -d \"\$AT/32\" -j DNAT --to \"\$A\"; iptables -t nat -D POSTROUTING -s \"\$A/32\" -j SNAT --to \"\$AT\"; iptables -t nat -D PREROUTING -d \"\$T\" -j NETMAP --to \"\$H\"; iptables -t nat -D POSTROUTING -s \"\$H\" -j NETMAP --to \"\$T\"; iptables -D INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT;"
+# Likewise, the wg-easy-admin host exception MUST come before the broad
+# NETMAP catch-all below, since its destination IP (10.200.0.9) falls inside
+# the NETMAP's translated subnet (WG_TRANSLATED_LAN_SUBNET) — NETMAP would
+# otherwise translate it to an unrelated real LAN host (192.168.1.9) instead
+# of routing to the actual homelab-bridge container. NPM no longer needs a
+# similar exception: since removing the macvlan network, it's reached via
+# its own real LAN IP, already covered by the general NETMAP translation
+# below.
+#
+# The wg-easy API stores PostUp/PostDown as a single shell-command string
+# (semicolon-separated), so the multi-line lists below get joined into one
+# line each by join_hook_lines() — but keeping them one-per-line here makes
+# this script easy to read/edit/diff. `$DEFAULT_IF` is intentionally left
+# unexpanded (escaped as \$DEFAULT_IF) since it must be evaluated at PostUp/
+# PostDown runtime on the Pi, every time the interface comes up/down — not
+# once here at bootstrap time.
+join_hook_lines() {
+  result=""
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    if [ -z "$result" ]; then
+      result="$line;"
+    else
+      result="$result $line;"
+    fi
+  done
+  printf '%s' "$result"
+}
+
+POST_UP="$(join_hook_lines <<EOF
+DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1)
+iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "\$DEFAULT_IF" -j MASQUERADE
+modprobe xt_NETMAP || true
+iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
+iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
+iptables -t nat -A PREROUTING -d ${WG_EASY_ADMIN_TRANSLATED_IP}/32 -j DNAT --to ${WG_EASY_ADMIN_HOMELAB_IP}
+iptables -t nat -A POSTROUTING -s ${WG_EASY_ADMIN_HOMELAB_IP}/32 -j SNAT --to ${WG_EASY_ADMIN_TRANSLATED_IP}
+iptables -t nat -A PREROUTING -d ${WG_TRANSLATED_LAN_SUBNET} -j NETMAP --to ${HOME_LAN_SUBNET}
+iptables -t nat -A POSTROUTING -s ${HOME_LAN_SUBNET} -j NETMAP --to ${WG_TRANSLATED_LAN_SUBNET}
+iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT
+iptables -A FORWARD -i wg0 -j ACCEPT
+iptables -A FORWARD -o wg0 -j ACCEPT
+EOF
+)"
+
+POST_DOWN="$(join_hook_lines <<EOF
+DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1)
+iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o "\$DEFAULT_IF" -j MASQUERADE
+iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
+iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
+iptables -t nat -D PREROUTING -d ${WG_EASY_ADMIN_TRANSLATED_IP}/32 -j DNAT --to ${WG_EASY_ADMIN_HOMELAB_IP}
+iptables -t nat -D POSTROUTING -s ${WG_EASY_ADMIN_HOMELAB_IP}/32 -j SNAT --to ${WG_EASY_ADMIN_TRANSLATED_IP}
+iptables -t nat -D PREROUTING -d ${WG_TRANSLATED_LAN_SUBNET} -j NETMAP --to ${HOME_LAN_SUBNET}
+iptables -t nat -D POSTROUTING -s ${HOME_LAN_SUBNET} -j NETMAP --to ${WG_TRANSLATED_LAN_SUBNET}
+iptables -D INPUT -p udp -m udp --dport 51820 -j ACCEPT
+iptables -D FORWARD -i wg0 -j ACCEPT
+iptables -D FORWARD -o wg0 -j ACCEPT
+EOF
+)"
 
 escape_json() {
   printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'

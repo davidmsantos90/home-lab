@@ -14,21 +14,22 @@ WireGuard Interface (wg0) on Raspberry Pi
     ↓
 iptables DNAT Rule
     ├─ Matches: -i wg0 -p udp --dport 53
-    └─ Action: DNAT --to-destination 172.23.0.2:5353 (dnsmasq container IP)
+    └─ Action: DNAT --to-destination 172.28.0.2:5353 (dnsmasq container IP)
     ↓
-dnsmasq Container (172.23.0.2)
+dnsmasq Container (172.28.0.2)
     ├─ Listen: 0.0.0.0:5353 (all interfaces)
     ├─ Upstream: 10.200.0.60 (Pi-hole)
-    └─ Rewrite Rule: nginx.pimlicoa.duckdns.org → 10.200.0.5
+    └─ Rewrite Rule: nginx.pimlicoa.duckdns.org → 10.200.0.60
     ↓
-Response: 10.200.0.5
+Response: 10.200.0.60
     ↓
 iptables MASQUERADE Rule
-    ├─ Matches: -d 172.23.0.2/32 -p udp --dport 5353
+    ├─ Matches: -d 172.28.0.2/32 -p udp --dport 5353
     └─ Action: MASQUERADE (rewrites source to appear from wg-easy)
     ↓
-VPN Client receives: 10.200.0.5
-    └─ Routes through wg0 tunnel to 10.200.0.5 (NPM's homelab IP via DNAT)
+VPN Client receives: 10.200.0.60
+    └─ Routes through wg0 tunnel to 10.200.0.60, NETMAP-translated to
+       192.168.1.60 (the Pi's own real LAN IP, where NPM listens directly)
 ```
 
 ## How It Works
@@ -48,35 +49,35 @@ When a VPN client queries DNS on the wg0 interface, iptables intercepts it:
 
 ```bash
 # From bootstrap-hooks.sh PostUp
-iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination 172.23.0.2:5353
-iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination 172.23.0.2:5353
+iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination 172.28.0.2:5353
+iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination 172.28.0.2:5353
 ```
 
 This rule:
 - Matches queries on wg0 interface on port 53
-- Rewrites destination to dnsmasq container IP (172.23.0.2) on port 5353
+- Rewrites destination to dnsmasq container IP (172.28.0.2) on port 5353
 - Preserves the original query so dnsmasq can answer it
 
-**Rule order matters**: this DNAT rule must be placed **before** the NPM
-DNAT/SNAT rules and the NETMAP rules in PREROUTING. The client's DNS queries
-target the wg0 gateway address (`10.200.0.1`), which falls inside the
-translated subnet (`10.200.0.0/24`). In iptables' `nat` table, a packet stops
-being evaluated by further rules in the same chain once it matches a NAT
-target. If NETMAP ran first, it would silently rewrite the destination to
-`192.168.1.1` and the DNS interception rule below it would never run —
-with no errors, making this very hard to spot.
+**Rule order matters**: this DNAT rule must be placed **before** the
+wg-easy-admin exception rule and the NETMAP rules in PREROUTING. The client's
+DNS queries target the wg0 gateway address (`10.200.0.1`), which falls
+inside the translated subnet (`10.200.0.0/24`). In iptables' `nat` table, a
+packet stops being evaluated by further rules in the same chain once it
+matches a NAT target. If NETMAP ran first, it would silently rewrite the
+destination to `192.168.1.1` and the DNS interception rule below it would
+never run — with no errors, making this very hard to spot.
 
 ### 3. dnsmasq Domain Rewriting
 dnsmasq receives the redirected query and applies rewrite rules:
 
 ```bash
 # From dnsmasq.conf
-address=/pimlicoa.duckdns.org/10.200.0.5   # wildcard: covers all subdomains
+address=/pimlicoa.duckdns.org/10.200.0.60   # wildcard: covers all subdomains
 server=10.200.0.60  # Upstream for other queries
 ```
 
 For this example:
-- Query for `nginx.pimlicoa.duckdns.org` (or any other subdomain, e.g. `immich.`, `portainer.`) → returns `10.200.0.5` (locally rewritten)
+- Query for `nginx.pimlicoa.duckdns.org` (or any other subdomain, e.g. `immich.`, `portainer.`) → returns `10.200.0.60` (locally rewritten)
 - Query for anything outside the domain → forwarded to Pi-hole (10.200.0.60)
 
 ### 4. MASQUERADE Return Traffic
@@ -84,8 +85,8 @@ Response traffic from dnsmasq needs to appear to come from wg-easy, not from dns
 
 ```bash
 # From bootstrap-hooks.sh PostUp
-iptables -t nat -A POSTROUTING -d 172.23.0.2/32 -p udp --dport 5353 -j MASQUERADE
-iptables -t nat -A POSTROUTING -d 172.23.0.2/32 -p tcp --dport 5353 -j MASQUERADE
+iptables -t nat -A POSTROUTING -d 172.28.0.2/32 -p udp --dport 5353 -j MASQUERADE
+iptables -t nat -A POSTROUTING -d 172.28.0.2/32 -p tcp --dport 5353 -j MASQUERADE
 ```
 
 This rule:
@@ -95,7 +96,7 @@ This rule:
 
 ## Common Issues and Solutions
 
-### Issue 1: "Still getting 192.168.1.5 from Pi-hole"
+### Issue 1: "Still getting 192.168.1.60 from Pi-hole"
 
 **Cause**: DNS query is going directly to Pi-hole (10.200.0.60), bypassing the VPN gateway and iptables rules.
 
@@ -115,7 +116,7 @@ This rule:
 
 ### Issue 2: "dnsmasq not receiving queries" (0 packets on dnsmasq's interface)
 
-**Cause A**: dnsmasq is listening only on localhost (127.0.0.1), but DNAT redirects to container IP (172.23.0.2).
+**Cause A**: dnsmasq is listening only on localhost (127.0.0.1), but DNAT redirects to container IP (172.28.0.2).
 
 **Solution**: Check dnsmasq.conf:
 ```bash
@@ -133,7 +134,7 @@ since the client's DNS query targets the wg0 gateway IP (`10.200.0.1`),
 which is inside the translated subnet (`10.200.0.0/24`). Once NETMAP claims
 the packet, no further NAT rules in that chain apply and dnsmasq never
 sees it. **Fix: DNS interception rules must be the first NAT rules applied
-in PostUp**, before NPM DNAT/SNAT and before NETMAP.
+in PostUp**, before the wg-easy-admin exception and before NETMAP.
 
 **How to confirm this is happening** (definitive diagnostic, avoids guessing):
 ```bash
@@ -145,7 +146,7 @@ docker exec dnsmasq-wg-easy timeout 30 tcpdump -i eth0 -n port 5353
 If this shows **0 packets captured**, the DNAT redirect never reached
 dnsmasq — check rule order in `iptables -t nat -S` output (list them with
 `docker exec wg-easy iptables -t nat -S`) and confirm the DNS rules appear
-above the NETMAP/NPM rules.
+above the NETMAP rules.
 
 You can also confirm what's happening on the wg-easy side:
 ```bash
@@ -203,7 +204,7 @@ available" since there's no service literally named that.
 4. Check dnsmasq config has rewrite rule:
    ```bash
    docker exec dnsmasq-wg-easy grep "address=" /etc/dnsmasq.conf
-   # Should show: address=/pimlicoa.duckdns.org/10.200.0.5
+   # Should show: address=/pimlicoa.duckdns.org/10.200.0.60
    ```
 
 ### Issue 4: "Authentication fails when running bootstrap script"
@@ -237,7 +238,7 @@ available" since there's no service literally named that.
 nslookup nginx.pimlicoa.duckdns.org
 # Expected:
 # Server: 10.200.0.1  (VPN gateway, not Pi-hole)
-# Address: 10.200.0.5 (translated address, not 192.168.1.5)
+# Address: 10.200.0.60 (translated address, not 192.168.1.60)
 ```
 
 ### From LAN Client (should NOT be intercepted)
@@ -245,7 +246,7 @@ nslookup nginx.pimlicoa.duckdns.org
 nslookup nginx.pimlicoa.duckdns.org
 # Expected:
 # Server: 10.200.0.60 (Pi-hole)
-# Address: 192.168.1.5 (physical address)
+# Address: 192.168.1.60 (physical address)
 ```
 
 ### From Tailnet Client (should NOT be intercepted)
@@ -253,18 +254,18 @@ nslookup nginx.pimlicoa.duckdns.org
 nslookup nginx.pimlicoa.duckdns.org
 # Expected:
 # Server: 10.200.0.60 (Pi-hole via Tailscale)
-# Address: 192.168.1.5 (physical address routed via Tailscale)
+# Address: 192.168.1.60 (physical address routed via Tailscale)
 ```
 
 ## Adding More Domain Rewrites
 
 Since every NPM proxy host under `pimlicoa.duckdns.org` shares the same
-translated address (`10.200.0.5`), one wildcard rule in
+translated address (`10.200.0.60`), one wildcard rule in
 [dnsmasq.conf](./dnsmasq.conf) covers the whole domain (and all its
 subdomains) automatically:
 
 ```bash
-address=/pimlicoa.duckdns.org/10.200.0.5
+address=/pimlicoa.duckdns.org/10.200.0.60
 ```
 
 New NPM proxy hosts (e.g. adding another `*.pimlicoa.duckdns.org` service)
@@ -292,13 +293,18 @@ the subnet overlap problem.
 This means such domains don't need their own translated IP or NAT rules —
 they're already covered by the same wildcard rewrite as any other
 NPM-proxied domain, since they resolve to NPM's translated address
-(`10.200.0.5`) too.
+(`10.200.0.60`) too.
 
-Only add a *new* translated IP (and matching DNAT/SNAT pair in
-`bootstrap-hooks.sh`, following the same pattern used for NPM's
-`10.200.0.5 ↔ 192.168.100.5` rule) if a client needs to reach a host-native
-service **directly**, bypassing NPM — e.g. a Plex app doing local network
-auto-discovery instead of using the reverse-proxy domain.
+Only add a *new* translated IP (and matching dedicated DNAT/SNAT pair in
+`bootstrap-hooks.sh`, following the same pattern used for the wg-easy admin
+UI's `10.200.0.9 ↔ 192.168.100.9` rule) if a client needs to reach a
+service that lives on the `homelab` bridge (a *different* subnet from the
+home LAN, unreachable via the generic NETMAP rule) **directly** — e.g. a
+Plex app doing local network auto-discovery instead of using the
+reverse-proxy domain. Anything reachable at the Pi's own real LAN IP (like
+NPM's host-published ports) is already covered by the generic
+`10.200.0.0/24 ↔ 192.168.1.0/24` NETMAP translation with no dedicated rule
+needed.
 
 ## Performance Considerations
 

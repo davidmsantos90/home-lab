@@ -8,7 +8,7 @@ Follows the [ScaleTail](https://github.com/tailscale-dev/ScaleTail) sidecar patt
 
 ```
 home-lab/
-├── compose.yaml               # Creates shared homelab + macvlan networks
+├── compose.yaml               # Creates shared homelab network
 ├── nginx-proxy-manager/
 │   ├── compose.yaml
 │   └── .env
@@ -43,7 +43,7 @@ home-lab/
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
 | **Jellyfin** | `8096` | `https://jellyfin.<tailnet>.ts.net` |
-| **Nginx Proxy Manager** | `192.168.1.5` (LAN IP via macvlan) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
+| **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
 | **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
 
 ## Prerequisites
@@ -86,13 +86,13 @@ docker compose up -d
 
 ### 1. Create the shared Docker networks
 
-Run the root compose file once to create the `homelab` bridge and `macvlan` networks:
+Run the root compose file once to create the `homelab` bridge network:
 
 ```bash
 docker compose up
 ```
 
-The `init` container prints a confirmation and exits. Both networks persist and are used by all services.
+The `init` container prints a confirmation and exits. The network persists and is used by all services.
 
 ### 2. Get a Tailscale Auth Key
 
@@ -100,11 +100,11 @@ Go to [Tailscale Admin → Keys](https://login.tailscale.com/admin/settings/keys
 
 ### 3. Configure and start each service
 
-Start **nginx-proxy-manager** first (it needs the macvlan network), then the rest in any order:
+Start **nginx-proxy-manager** first, then the rest in any order:
 
 ```bash
 cd nginx-proxy-manager
-# Edit .env — set TZ and verify NPM_IP matches your macvlan range
+# Edit .env — set TZ
 docker compose up -d
 
 # Then for each other service:
@@ -192,7 +192,7 @@ Because the Tailscale container has `ports:` bound to `0.0.0.0` on the host, you
 | Immich | `http://<host-ip>:2283` |
 | Portainer | `http://<host-ip>:9000` |
 | Deluge | `http://<host-ip>:8112` |
-| NPM admin | `http://192.168.1.5:81` |
+| NPM admin | `http://192.168.1.60:81` |
 | wg-easy admin | `http://127.0.0.1:51821` (host-local only) |
 
 You can **also** route through NPM using your DuckDNS subdomains for a consistent URL across LAN and Tailnet (see NPM section below).
@@ -203,11 +203,11 @@ You can **also** route through NPM using your DuckDNS subdomains for a consisten
 | Local domain via NPM | `https://immich.pimlicoa.duckdns.org` | ❌ | ✅ |
 | Tailnet | `https://immich.<tailnet>.ts.net` | ✅ | ❌ |
 
-> **Note**: `nginx-proxy-manager` and `wg-easy` are exceptions to the sidecar pattern above — neither runs a Tailscale sidecar. NPM attaches directly to `macvlan`/`homelab` with its own pinned IPs, and wg-easy attaches directly to `homelab`. Reach NPM's admin UI over LAN (`http://192.168.1.5:81`) or through the wg-easy VPN (`http://10.200.0.5:81`); reach wg-easy's own admin UI locally (`http://127.0.0.1:51821`) or through its own VPN (`http://10.200.0.9:51821`).
+> **Note**: `nginx-proxy-manager` and `wg-easy` are exceptions to the sidecar pattern above — neither runs a Tailscale sidecar. NPM attaches directly to `homelab` and publishes its ports directly on the host; wg-easy attaches directly to `homelab`. Reach NPM's admin UI over LAN (`http://192.168.1.60:81`) or through the wg-easy VPN (`http://10.200.0.60:81`); reach wg-easy's own admin UI locally (`http://127.0.0.1:51821`) or through its own VPN (`http://10.200.0.9:51821`).
 
 ## Nginx Proxy Manager
 
-NPM lives on a **macvlan** network, giving it a dedicated LAN IP (`192.168.1.5`) so it can own ports 80/443 without conflicting with the host. It is also on the `homelab` bridge to reach other services.
+NPM publishes ports 80/443/81 directly on the host (`ports:` in its `compose.yaml`), so it's reachable at the Pi's own real LAN IP (`192.168.1.60`) without needing a dedicated network attachment. It is also on the `homelab` bridge to reach other services.
 
 ### NPM upstream targets
 
@@ -222,7 +222,7 @@ When adding proxy hosts in NPM, use the Tailscale container name as the upstream
 | Plex | `tailscale-plex` | `32400` |
 | Jellyfin | `tailscale-jellyfin` | `8096` |
 
-For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — macvlan containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
+For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — bridge containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
 
 | Service (on host) | NPM upstream host | NPM upstream port |
 |---|---|---|
@@ -234,9 +234,9 @@ The gateway is pinned to `192.168.100.1` by the subnet in `compose.yaml`. Once a
 
 With Pi-hole as DNS for both LAN and Tailnet, you can use the same subdomain everywhere:
 
-1. **Pi-hole** → Local DNS → DNS Records: add one A record pointing your domain to NPM's IP:
+1. **Pi-hole** → Local DNS → DNS Records: add one A record pointing your domain to the Pi's real LAN IP:
    ```
-   pimlicoa.duckdns.org → 192.168.1.5
+   pimlicoa.duckdns.org → 192.168.1.60
    ```
 2. Add CNAME records for each subdomain pointing to the root:
    ```
@@ -259,33 +259,31 @@ NPM default credentials (change on first login):
 │  homelab bridge (192.168.100.0/24)              │
 │  gateway: 192.168.100.1 (host)                  │
 │                                                  │
-│  nginx-proxy-manager → 192.168.100.5            │
+│  nginx-proxy-manager (unpinned, dynamic IP)     │
 │  wg-easy → 192.168.100.9                        │
 │  tailscale-pihole, tailscale-immich,            │
 │  tailscale-portainer, tailscale-deluge,         │
 │  tailscale-plex (dynamic IPs, unpinned)         │
 └─────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────┐
-│  macvlan (192.168.1.0/24, range .4-.7)          │
-│  parent: eth0                                    │
-│                                                  │
-│  nginx-proxy-manager → 192.168.1.5              │
-└─────────────────────────────────────────────────┘
+nginx-proxy-manager also publishes ports 80/443/81 directly on the host,
+reachable at the Pi's real LAN IP (192.168.1.60).
 ```
 
 Each service's `compose.yaml` also defines a **private internal network** (e.g. `immich_internal`) for intra-service communication (immich ↔ postgres ↔ redis). Those containers are not reachable from outside.
 
 ### Accessing admin UIs over the wg-easy VPN
 
-Connected VPN clients (`10.200.0.0/24`) reach select homelab-bridge services
-directly at dedicated translated IPs, via host-exception NAT rules applied
-by `wg-easy/bootstrap-hooks.sh` (see the ordering note in that script — these
-exceptions must come before the broad NETMAP subnet translation):
+Connected VPN clients (`10.200.0.0/24`) reach NPM's admin UI via the generic
+NETMAP subnet translation (same as any other real-LAN service, e.g.
+`http://10.200.0.60:81` → `192.168.1.60:81`). wg-easy's own admin UI lives on
+the `homelab` bridge — a different subnet entirely, unreachable via that
+NETMAP rule — so it gets its own dedicated host-exception NAT rule applied
+by `wg-easy/bootstrap-hooks.sh` (see the ordering note in that script — this
+exception must come before the broad NETMAP subnet translation):
 
 | Service           | Translated VPN IP | Real homelab-bridge IP | Port  |
 |-------------------|--------------------|-------------------------|-------|
-| NPM admin UI      | `10.200.0.5`       | `192.168.100.5`         | `81`  |
 | wg-easy admin UI  | `10.200.0.9`       | `192.168.100.9`         | `51821` |
 
 e.g. `http://10.200.0.9:51821` reaches wg-easy's own management UI while
@@ -406,8 +404,8 @@ docker compose up -d
   from the Docker host itself.
 
 **Root cause**: every service here runs a `tailscale-${SERVICE}` sidecar
-container that owns the actual network attachments (LAN macvlan, the shared
-`homelab` bridge, Tailscale), and the app container (`app-${SERVICE}`) joins
+container that owns the actual network attachments (the shared `homelab`
+bridge, Tailscale), and the app container (`app-${SERVICE}`) joins
 it via `network_mode: service:tailscale` — sharing its network namespace
 instead of having its own.
 
@@ -454,7 +452,7 @@ just `./lab.sh restart <service>`).
 
 **Symptom**: Connected to the wg-easy VPN (or full-tunnel), but *no* domain
 resolves — not just `*.pimlicoa.duckdns.org`, but every domain, including
-plain internet sites. Direct IP access (e.g. `curl http://10.200.0.5:81`)
+plain internet sites. Direct IP access (e.g. `curl http://10.200.0.60:81`)
 still works fine; only DNS is broken.
 
 **Root cause**: `wg-easy-hooks-bootstrap` (the container that automatically
@@ -579,7 +577,7 @@ docker compose -f wg-easy/compose.yaml up -d --force-recreate wg-easy
 
 ### Android VPN client can reach raw IPs but domains time out (client-side, not a bug)
 
-If `curl`/browsing a raw translated IP (e.g. `http://10.200.0.5:81`) works over
+If `curl`/browsing a raw translated IP (e.g. `http://10.200.0.60:81`) works over
 the VPN but `*.pimlicoa.duckdns.org` domains time out, and `nslookup
 <domain> 10.200.0.1` from the phone (e.g. via Termux) resolves correctly,
 this is **not** a server-side bug — it's Android's **Private DNS**

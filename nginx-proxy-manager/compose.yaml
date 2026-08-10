@@ -11,6 +11,13 @@ services:
       - ${HOME_LAB_DIR:-.}/data:/data
       - ${HOME_LAB_DIR:-.}/letsencrypt:/etc/letsencrypt
 
+    # No more macvlan — NPM binds these directly on the host, same pattern
+    # already used by Pi-hole (port 53) for a host-native-facing service.
+    ports:
+      - "0.0.0.0:80:80/tcp"
+      - "0.0.0.0:443:443/tcp"
+      - "0.0.0.0:81:81/tcp"
+
     # Resolve local DNS names (e.g. Pi-hole "Local DNS Records") when setting
     # a proxy host's Forward Hostname/IP, instead of relying on ambient
     # Docker daemon DNS (which may or may not point at Pi-hole depending on
@@ -45,17 +52,10 @@ services:
 
     networks:
       default: {}
-      homelab:
-        ipv4_address: 192.168.100.5    # Static homelab IP for wg-easy to reach via NETMAP.
-                                        # Previously held by the (now removed) Tailscale
-                                        # sidecar via network_mode: service:tailscale — moved
-                                        # here so it stays the same and wg-easy's NAT exception
-                                        # rule (10.200.0.5 -> 192.168.100.5) keeps working.
-      macvlan:                       # No ports: needed — macvlan gives this container a real LAN IP
-        ipv4_address: ${NPM_IP}      # Static LAN IP — reserve this in your router
-        mac_address: ${NPM_MAC}      # Pinned so the router's ARP/IP-MAC binding doesn't
-                                      # break on every container recreation (Docker assigns
-                                      # a new random MAC each time otherwise, same IP)
+      homelab: {}   # No pinned IP needed anymore — nothing routes to NPM via a
+                    # static homelab address now that it's reachable on the
+                    # host's own real LAN IP; only needed so NPM can reach other
+                    # services' Tailscale sidecars by container name for proxy hosts.
 
     restart: unless-stopped
 
@@ -63,6 +63,4 @@ networks:
   default:
     name: npm_internal
   homelab:
-    external: true
-  macvlan:
     external: true
