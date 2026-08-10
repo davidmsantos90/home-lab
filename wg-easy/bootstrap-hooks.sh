@@ -72,32 +72,15 @@ if ! curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig" >/de
   exit 1
 fi
 
-# Resolve dnsmasq container IP dynamically.
-#
-# When this script runs as the "wg-easy-hooks-bootstrap" container (the
-# normal, automatic path on every `docker compose up`), it shares the
-# "wg_easy_internal" Docker network with dnsmasq but has no Docker socket
-# or CLI available (curlimages/curl is a minimal image) — `docker inspect`
-# would always fail silently here, previously causing this to permanently
-# fall back to the dead-end 127.0.0.1, breaking VPN DNS interception on
-# every fresh recreate. Use `getent hosts`, which resolves via Docker's
-# embedded DNS over the shared network and works with no extra tooling.
-#
-# When run manually on the host (e.g. `sh bootstrap-hooks.sh`, without
-# /.dockerenv), that embedded DNS isn't reachable, so fall back to
-# `docker inspect` there instead.
-if [ -f "/.dockerenv" ]; then
-  echo "Resolving dnsmasq container IP via Docker embedded DNS..."
-  DNSMASQ_IP=$(getent hosts dnsmasq-wg-easy 2>/dev/null | awk '{print $1}' | head -n1 || echo "")
-else
-  echo "Resolving dnsmasq container IP via docker inspect..."
-  DNSMASQ_IP=$(docker inspect dnsmasq-wg-easy -f '{{.NetworkSettings.Networks.wg_easy_bridge.IPAddress}}' 2>/dev/null || echo "")
-fi
-if [ -z "$DNSMASQ_IP" ]; then
-  echo "ERROR: Could not resolve dnsmasq container IP — DNS interception would break silently. Refusing to continue." >&2
-  rm -f "$COOKIES_FILE"
-  exit 1
-fi
+# dnsmasq's IP on wg_easy_internal is pinned (see compose.yaml) specifically
+# so this doesn't need runtime resolution at all. Previously this WAS
+# dynamically resolved (via getent/docker inspect) because dnsmasq had no
+# static IP — but PostUp/PostDown embed this IP as a literal value in
+# wg-easy's persisted config, so any drift there (unpinned = dynamic Docker
+# IPAM reassigning it across restarts) silently made the saved rules stale,
+# forcing a hook-rerun + wg-easy-recreate cycle just to catch up. Pinning it
+# removes that whole class of bug: this value should now never change.
+DNSMASQ_IP="${DNSMASQ_IP:-172.28.0.2}"
 echo "Using dnsmasq IP: $DNSMASQ_IP"
 
 # NOTE: DNS interception rules MUST come first in PREROUTING. Once a packet

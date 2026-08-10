@@ -62,7 +62,13 @@ services:
     cap_add:
       - NET_ADMIN
     networks:
-      - wg_easy_internal
+      wg_easy_internal:
+        ipv4_address: 172.28.0.2    # Static IP: wg-easy's PostUp/PostDown rules embed this
+                                     # IP as a literal value in wg-easy's persisted config, so
+                                     # if it ever drifted (unpinned = dynamic Docker IPAM), the
+                                     # saved rules would silently go stale on any restart where
+                                     # dnsmasq happened to get reassigned — the same class of bug
+                                     # already fixed for the homelab bridge (NPM/wg-easy collision).
     restart: unless-stopped
 
   wg-easy:
@@ -77,6 +83,12 @@ services:
       INIT_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
       INIT_PORT: "51820"
       INIT_DNS: ${WG_VPN_DNS}
+      # Native wg-easy default (applies only on the container's very first
+      # ever boot — see wg-easy docs on unattended setup). This covers fresh
+      # installs cleanly from the start; bootstrap-hooks.sh's userconfig API
+      # call remains necessary for already-initialized installs (like this
+      # one) and for PostUp/PostDown/keepalive, which have no INIT_* env var.
+      INIT_ALLOWED_IPS: ${WG_VPN_ALLOWED_IPS}
       # RFC-001: Overlap subnet translation
       HOME_LAN_SUBNET: ${HOME_LAN_SUBNET}
       WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET}
@@ -120,6 +132,8 @@ services:
       WG_VPN_DNS: ${WG_VPN_DNS}
       WG_VPN_ALLOWED_IPS: ${WG_VPN_ALLOWED_IPS}
       WG_VPN_PERSISTENT_KEEPALIVE: ${WG_VPN_PERSISTENT_KEEPALIVE:-25}
+      # Must match dnsmasq's pinned ipv4_address on wg_easy_internal below.
+      DNSMASQ_IP: ${DNSMASQ_IP:-172.28.0.2}
     volumes:
       - ./bootstrap-hooks.sh:/bootstrap-hooks.sh:ro
     entrypoint: ["/bin/sh", "/bootstrap-hooks.sh"]
@@ -130,5 +144,8 @@ services:
 networks:
   wg_easy_internal:
     name: wg_easy_bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24    # Explicit subnet required to pin dnsmasq's ipv4_address below
   homelab:
     external: true

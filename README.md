@@ -470,14 +470,15 @@ This bug was masked whenever the fix was applied by re-running
 via `docker compose up`/`./lab.sh restart wg-easy` automatically re-running
 the bootstrap container.
 
-**Fix**: `bootstrap-hooks.sh` now resolves dnsmasq's IP via `getent hosts
-dnsmasq-wg-easy` when running inside the bootstrap container (using Docker's
-embedded DNS over the shared `wg_easy_internal` network, which needs no
-extra tooling), and only falls back to `docker inspect` when run manually on
-the host. It also now fails loudly (`exit 1`) instead of silently defaulting
-to a broken `127.0.0.1`, so a resolution failure is visible in
-`docker compose logs wg-easy-hooks-bootstrap` instead of causing a silent,
-confusing VPN DNS outage.
+**Fix (superseded)**: `bootstrap-hooks.sh` initially resolved dnsmasq's IP via
+`getent hosts dnsmasq-wg-easy` when running inside the bootstrap container
+(using Docker's embedded DNS over the shared `wg_easy_internal` network,
+which needs no extra tooling), falling back to `docker inspect` when run
+manually on the host, and failing loudly instead of silently defaulting to
+`127.0.0.1`. **This has since been superseded** by pinning dnsmasq to a
+static IP (`172.28.0.2`) on `wg_easy_internal` — see the next section for
+why runtime resolution turned out to be treating a symptom, not the root
+cause.
 
 **Diagnosis** — confirm the installed NAT rule points at the wrong IP:
 
@@ -498,6 +499,40 @@ is actually installed (updating the API config alone does **not** reapply
 cd wg-easy && sh bootstrap-hooks.sh
 ./lab.sh restart wg-easy
 ```
+
+### Why wg-easy needed a hook-rerun + restart on *every* single start/restart
+
+**Root cause (found later)**: `dnsmasq` had no pinned IP on `wg_easy_internal`
+(the same "unpinned = dynamic Docker IPAM" bug already fixed once for the
+`homelab` bridge). `PostUp`/`PostDown` embed dnsmasq's IP as a **literal
+value** baked into wg-easy's persisted config (`wg-easy/data/`) — so any time
+dnsmasq's IP happened to drift across a restart, the *already-saved* rules
+went stale, forcing the whole hook-rerun + wg-easy-recreate dance just to
+regenerate them with the new IP. This made every `./lab.sh restart wg-easy`
+feel like a fragile, multi-step operation with configuration that could
+seemingly "get lost" — really just the rules getting silently regenerated
+against a moving target.
+
+**Fix**: dnsmasq is now pinned to a static IP (`172.28.0.2`, on an explicit
+`172.28.0.0/24` subnet added to `wg_easy_internal`). `bootstrap-hooks.sh` no
+longer does any runtime IP resolution at all (removed the `getent`/`docker
+inspect` logic entirely — one less thing that can silently fail). Since
+wg-easy persists its config in the `data/` volume, and the embedded dnsmasq
+IP can now never change, a plain restart is idempotent: it reloads the same
+already-correct `PostUp`/`PostDown` without the hook needing to actually
+change anything. The hook still runs on every `./lab.sh start`/`restart`
+(see below) as a safety net, but it's now a no-op most of the time instead
+of a load-bearing step.
+
+Additionally, `wg-easy`'s `INIT_ALLOWED_IPS` (a native, officially-supported
+wg-easy env var — see `INIT_DNS`, already in use) is now also set, so fresh
+installs get correct client defaults (translated + real LAN subnets) from
+their very first boot, without depending on the hook's `userconfig` API call
+at all for that value. Note `INIT_*` vars only apply on a container's
+*first ever* boot (per wg-easy's docs) — they can't retroactively fix an
+already-initialized install; the hook's `userconfig` API call remains the
+mechanism for that, and is still the only way to configure
+`defaultPersistentKeepalive` (no `INIT_*` equivalent exists for it).
 
 **A second, related pitfall**: `wg-easy-hooks-bootstrap` is a one-shot
 container gated by `depends_on: condition: service_healthy` on `wg-easy`.
@@ -547,6 +582,36 @@ to plain DNS, often long enough to trigger a client/app-level timeout.
 
 **Fix**: on the Android device, go to **Settings → Network & Internet →
 Private DNS** and set it to **Off** (at least while connected to the VPN).
+
+### VPN client's handshake never completes after deleting/recreating it in wg-easy
+
+**Symptom**: A client's `.conf` looks structurally fine (correct
+`Endpoint`, `AllowedIPs`, etc.), the WireGuard app shows the tunnel as
+"active," but `wg show wg0` on the Pi never shows a handshake for it, and
+`tcpdump` shows only one-sided traffic (the client's handshake-initiation
+retries arrive, but wg-easy never responds).
+
+**Root cause**: deleting a client in the wg-easy admin UI permanently
+removes that peer's keypair from the server. If you then reuse an old,
+locally-saved `.conf` file (or manually recreate the client and expect the
+old file to still work), the `[Peer] PublicKey` in that file is the
+**server's** public key — this doesn't change when you delete/recreate a
+client, so an old `.conf` will usually still have the correct server key.
+What *does* go stale is the **`[Interface] PrivateKey`**: each client's own
+keypair is generated fresh by wg-easy every time a new client is created,
+so an old client's private key has no matching peer entry on the server
+after that client is deleted — the server silently drops every handshake
+from a private key it doesn't recognize, with zero error or log output on
+either side.
+
+**Fix**: this can't be fixed by editing the client-side `.conf` at all —
+you must download a **fresh config for the current client** from the
+wg-easy admin UI (Client → Download), which is guaranteed to contain the
+private key matching whatever peer entry wg-easy actually has server-side.
+If you need customized `DNS`/`AllowedIPs`/`PersistentKeepalive` values,
+re-apply those edits on top of the freshly downloaded file — every other
+field (`PrivateKey`, `[Peer] PublicKey`, `PresharedKey`) must come from that
+download unmodified.
 
 ## Syncing environment files to the Raspberry Pi
 
