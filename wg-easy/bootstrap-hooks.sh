@@ -110,11 +110,29 @@ PAYLOAD="$(cat <<EOF
 EOF
 )"
 
-curl -fsS -b "$COOKIES_FILE" \
-  -X POST \
-  -H "Content-Type: application/json" \
-  --data "$PAYLOAD" \
-  "${WG_EASY_API_URL}/api/admin/hooks" >/dev/null
+# Idempotency check: only POST (and thus only trigger the caller's
+# force-recreate-to-apply-PostUp/PostDown cycle) if the stored hooks
+# actually differ from what we'd write. Once dnsmasq's IP is pinned, the
+# desired PostUp/PostDown never change between runs, so on every ordinary
+# restart this ends up being a no-op — saving the disruptive wg-easy
+# recreate that would otherwise happen on every single restart for no
+# reason. Substring match (not full JSON equality) is intentional: it's
+# resilient to extra fields/ordering in the GET response, and both sides
+# use the same simple backslash/quote JSON-escaping for this content.
+CURRENT_HOOKS="$(curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/hooks")"
+HOOKS_CHANGED=false
+if ! printf '%s' "$CURRENT_HOOKS" | grep -qF "\"postUp\":\"${POST_UP_JSON}\"" \
+  || ! printf '%s' "$CURRENT_HOOKS" | grep -qF "\"postDown\":\"${POST_DOWN_JSON}\""; then
+  HOOKS_CHANGED=true
+  echo "Hooks (PostUp/PostDown) differ from desired state — updating..."
+  curl -fsS -b "$COOKIES_FILE" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    --data "$PAYLOAD" \
+    "${WG_EASY_API_URL}/api/admin/hooks" >/dev/null
+else
+  echo "Hooks (PostUp/PostDown) already up to date — skipping"
+fi
 
 USERCONFIG="$(curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig")"
 
@@ -150,13 +168,31 @@ KEEPALIVE_REPL="$(escape_sed_replacement "\"defaultPersistentKeepalive\":${WG_VP
 UPDATED_USERCONFIG="$(printf '%s' "$USERCONFIG" | sed -E \
   "s|\"defaultDns\":\[[^]]*\]|${DNS_REPL}|; s|\"defaultAllowedIps\":\[[^]]*\]|${ALLOWED_REPL}|; s|\"defaultPersistentKeepalive\":[0-9]+|${KEEPALIVE_REPL}|")"
 
-curl -fsS -b "$COOKIES_FILE" \
-  -X POST \
-  -H "Content-Type: application/json" \
-  --data "$UPDATED_USERCONFIG" \
-  "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null
+USERCONFIG_CHANGED=false
+if [ "$UPDATED_USERCONFIG" != "$USERCONFIG" ]; then
+  USERCONFIG_CHANGED=true
+  echo "VPN client defaults differ from desired state — updating..."
+  curl -fsS -b "$COOKIES_FILE" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    --data "$UPDATED_USERCONFIG" \
+    "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null
+else
+  echo "VPN client defaults already up to date — skipping"
+fi
 
 # Cleanup
 rm -f "$COOKIES_FILE"
 
-echo "wg-easy hooks and VPN defaults applied successfully"
+# Parseable marker, read by lab.sh's run_bootstrap_hooks() to decide whether
+# a wg-easy recreate is actually needed: recreating is only required when
+# hooks changed (PostUp/PostDown need the interface cycled to take effect).
+# A userconfig-only change (client defaults) applies to newly created
+# clients immediately with no interface cycle needed at all.
+if $HOOKS_CHANGED; then
+  echo "wg-easy hooks and VPN defaults applied successfully"
+  echo "BOOTSTRAP_RESULT=changed"
+else
+  echo "wg-easy hooks and VPN defaults already up to date, nothing to apply"
+  echo "BOOTSTRAP_RESULT=unchanged"
+fi

@@ -56,6 +56,14 @@ ensure_networks() {
 # does. So after the hook runs, force-recreate its target service too
 # (named by convention: "<hook>" minus the "-hooks-bootstrap" suffix) so the
 # freshly hook-configured rules actually get loaded, not just saved to disk.
+#
+# The hook itself is idempotent (it only POSTs when the stored config
+# actually differs from the desired state, printing a "BOOTSTRAP_RESULT="
+# marker line). Since dnsmasq's IP is now pinned, the desired PostUp/PostDown
+# never changes between runs, so on an already-configured install this is a
+# no-op — we wait for the hook to actually finish (`docker compose wait`)
+# and only pay for the disruptive target recreate when it reports a real
+# change, instead of unconditionally cycling on every single start/restart.
 run_bootstrap_hooks() {
     local svc=$1
     local hook_services
@@ -63,10 +71,17 @@ run_bootstrap_hooks() {
     for hook in $hook_services; do
         info "$svc" "Running one-shot hook: $hook..."
         (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate "$hook")
+        (cd "$SCRIPT_DIR/$svc" && docker compose wait "$hook") || true
 
         local target="${hook%-hooks-bootstrap}"
-        info "$svc" "Cycling $target to apply hook-configured PostUp/PostDown rules..."
-        (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate "$target")
+        local hook_log
+        hook_log=$(cd "$SCRIPT_DIR/$svc" && docker compose logs --no-log-prefix "$hook" 2>/dev/null)
+        if echo "$hook_log" | grep -q '^BOOTSTRAP_RESULT=changed$'; then
+            info "$svc" "Cycling $target to apply hook-configured PostUp/PostDown rules..."
+            (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate "$target")
+        else
+            info "$svc" "Hook applied no changes — skipping $target cycle"
+        fi
     done
 }
 

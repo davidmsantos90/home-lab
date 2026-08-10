@@ -520,9 +520,17 @@ inspect` logic entirely — one less thing that can silently fail). Since
 wg-easy persists its config in the `data/` volume, and the embedded dnsmasq
 IP can now never change, a plain restart is idempotent: it reloads the same
 already-correct `PostUp`/`PostDown` without the hook needing to actually
-change anything. The hook still runs on every `./lab.sh start`/`restart`
-(see below) as a safety net, but it's now a no-op most of the time instead
-of a load-bearing step.
+change anything.
+
+The hook itself is now also **idempotent-aware**: it fetches the
+currently-stored hooks/userconfig via wg-easy's API first, and only POSTs an
+update if the desired value actually differs (printing a
+`BOOTSTRAP_RESULT=changed`/`unchanged` marker line). `run_bootstrap_hooks()`
+in `lab.sh` waits for the hook to finish (`docker compose wait`), reads that
+marker from its logs, and **only force-recreates wg-easy when the hook
+reports a real change** — so an ordinary `./lab.sh start`/`restart` on an
+already-configured install no longer force-recreates wg-easy at all; it just
+confirms nothing needs to change and moves on.
 
 Additionally, `wg-easy`'s `INIT_ALLOWED_IPS` (a native, officially-supported
 wg-easy env var — see `INIT_DNS`, already in use) is now also set, so fresh
