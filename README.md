@@ -520,6 +520,20 @@ If `STATUS` shows `Created` (not `Exited (0)`), force it to actually run:
 docker compose -f wg-easy/compose.yaml up -d --force-recreate wg-easy-hooks-bootstrap
 ```
 
+**A third, related pitfall**: even when the hook container *does* run
+successfully (as above), the rules it configures are only *saved* via the
+API — as noted above, that alone does **not** reapply `PostUp`/`PostDown` to
+the live WireGuard interface. `./lab.sh start <svc>`/`restart <svc>` now
+automatically force-recreates the hook's target service too (`wg-easy`
+itself) right after the hook finishes, so any rule change actually takes
+effect without a separate manual step. If you ever run the hook container
+manually/directly, remember to also cycle `wg-easy` afterward:
+
+```bash
+docker compose -f wg-easy/compose.yaml up -d --force-recreate wg-easy-hooks-bootstrap
+docker compose -f wg-easy/compose.yaml up -d --force-recreate wg-easy
+```
+
 ### Android VPN client can reach raw IPs but domains time out (client-side, not a bug)
 
 If `curl`/browsing a raw translated IP (e.g. `http://10.200.0.5:81`) works over

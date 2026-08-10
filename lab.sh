@@ -48,6 +48,14 @@ ensure_networks() {
 # silently skipping its setup with no error. Force-recreate any such
 # container after bringing the service up so it's guaranteed to actually
 # run, rather than relying on depends_on timing.
+#
+# Additionally, for wg-easy specifically, the hook configures PostUp/PostDown
+# iptables rules via wg-easy's HTTP API — but updating that config via the
+# API does NOT reapply PostUp/PostDown to the live WireGuard interface; only
+# actually cycling the interface (i.e. recreating the wg-easy container)
+# does. So after the hook runs, force-recreate its target service too
+# (named by convention: "<hook>" minus the "-hooks-bootstrap" suffix) so the
+# freshly hook-configured rules actually get loaded, not just saved to disk.
 run_bootstrap_hooks() {
     local svc=$1
     local hook_services
@@ -55,6 +63,10 @@ run_bootstrap_hooks() {
     for hook in $hook_services; do
         info "$svc" "Running one-shot hook: $hook..."
         (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate "$hook")
+
+        local target="${hook%-hooks-bootstrap}"
+        info "$svc" "Cycling $target to apply hook-configured PostUp/PostDown rules..."
+        (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate "$target")
     done
 }
 
