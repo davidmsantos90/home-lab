@@ -83,6 +83,8 @@ services:
       WG_EASY_API_URL: http://wg-easy:51821
       WG_EASY_ADMIN_USERNAME: ${WG_EASY_ADMIN_USERNAME}
       WG_EASY_ADMIN_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
+      # RFC-006: scopes DNS interception to just this domain's queries.
+      WG_EASY_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
       HOME_LAN_SUBNET: ${HOME_LAN_SUBNET}
       WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET}
       WG_VPN_DNS: ${WG_VPN_DNS}

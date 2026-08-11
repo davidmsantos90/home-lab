@@ -4,21 +4,29 @@ This document explains how DNS interception works in wg-easy and how to troubles
 
 ## Architecture
 
+> **RFC-006 update**: DNS interception now only redirects queries whose
+> content matches `pimlicoa.duckdns.org` (or a subdomain) to dnsmasq.
+> Everything else bypasses dnsmasq entirely, reaching Pi-hole directly via
+> the existing NETMAP translation — this preserves the client's real
+> WireGuard tunnel IP in Pi-hole's Query Log for the vast majority of
+> traffic. See [RFC-006](./docs/RFC-006-vpn-client-dns-identity.md) for the
+> full rationale and the tradeoffs of this approach.
+
 ```
 VPN Client (macOS/Linux)
     ↓
-    └─ Query: nginx.pimlicoa.duckdns.org on port 53
-       (Configured DNS: 10.200.0.1 - VPN gateway)
+    ├─ Query: nginx.pimlicoa.duckdns.org on port 53
+    │  (Configured DNS: 10.200.0.60 - Pi-hole's translated address)
     ↓
 WireGuard Interface (wg0) on Raspberry Pi
     ↓
-iptables DNAT Rule
-    ├─ Matches: -i wg0 -p udp --dport 53
+iptables DNAT Rule (content-matched)
+    ├─ Matches: -i wg0 -p udp --dport 53 -m string --hex-string <pimlicoa.duckdns.org wire bytes> --icase
     └─ Action: DNAT --to-destination 172.28.0.2:5353 (dnsmasq container IP)
     ↓
 dnsmasq Container (172.28.0.2)
     ├─ Listen: 0.0.0.0:5353 (all interfaces)
-    ├─ Upstream: 10.200.0.60 (Pi-hole)
+    ├─ Upstream: 10.200.0.60 (Pi-hole, defensive fallback only)
     └─ Rewrite Rule: nginx.pimlicoa.duckdns.org → 10.200.0.60
     ↓
 Response: 10.200.0.60
@@ -32,40 +40,76 @@ VPN Client receives: 10.200.0.60
        192.168.1.60 (the Pi's own real LAN IP, where NPM listens directly)
 ```
 
+For **any other domain** (the vast majority of queries), the DNS DNAT rule
+above simply doesn't match, so the packet falls through untouched to the
+generic NETMAP rule:
+
+```
+VPN Client
+    ↓
+    └─ Query: example.com on port 53 (same configured DNS: 10.200.0.60)
+    ↓
+iptables DNAT Rule (content-matched) — doesn't match, falls through
+    ↓
+iptables NETMAP Rule
+    ├─ Matches: -d 10.200.0.0/24 -j NETMAP --to 192.168.1.0/24
+    └─ Action: rewrites destination only (10.200.0.60 → 192.168.1.60),
+       source IP untouched
+    ↓
+Pi-hole (192.168.1.60) sees the query from the client's real tunnel IP
+```
+
 ## How It Works
 
 ### 1. VPN Client Configuration
-The VPN client must be configured to use the **VPN gateway as DNS**, not Pi-hole directly:
+The VPN client is configured to use **Pi-hole's translated address** directly as DNS — not the VPN gateway:
 
 ```
 # On WireGuard config (macOS, Linux, etc.)
-DNS = 10.200.0.1
+DNS = 10.200.0.60
 ```
 
-**Why?** Queries to the gateway IP (10.200.0.1) will route through wg0, where iptables can intercept them.
+**Why not the gateway?** Historically (RFC-003) DNS had to point at the
+gateway (`10.200.0.1`) because the old DNS DNAT rule matched purely on
+`-i wg0 --dport 53`, with no awareness of destination or content — pointing
+straight at Pi-hole bypassed it entirely, and no rewrite ever happened for
+`pimlicoa.duckdns.org`. Since the rule now matches on **domain content**
+instead (see below), it still catches those queries no matter which
+address they're sent to — so DNS can point directly at Pi-hole, and every
+other query benefits from not needing interception at all.
 
-### 2. iptables DNAT Interception
-When a VPN client queries DNS on the wg0 interface, iptables intercepts it:
+### 2. iptables DNAT Interception (content-scoped)
+When a VPN client sends a DNS query on the wg0 interface, iptables only
+intercepts it if the packet's payload contains `pimlicoa.duckdns.org`'s
+DNS wire-format bytes:
 
 ```bash
-# From bootstrap-hooks.sh PostUp
-iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination 172.28.0.2:5353
-iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination 172.28.0.2:5353
+# From bootstrap-hooks.sh PostUp (DNS_MATCH_HEX computed at bootstrap time
+# from WG_EASY_HOST via domain_to_wire_hex())
+iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -m string --algo bm --hex-string "|0870696d6c69636f61076475636b646e73036f726700|" --icase -j DNAT --to-destination 172.28.0.2:5353
+iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex-string "|0870696d6c69636f61076475636b646e73036f726700|" --icase -j DNAT --to-destination 172.28.0.2:5353
 ```
 
 This rule:
-- Matches queries on wg0 interface on port 53
-- Rewrites destination to dnsmasq container IP (172.28.0.2) on port 5353
-- Preserves the original query so dnsmasq can answer it
+- Matches DNS packets on the wg0 interface whose payload contains the wire
+  encoding of `pimlicoa.duckdns.org` (length-prefixed labels ending in a
+  zero byte — any subdomain shares the same byte suffix, so this one rule
+  covers the whole domain).
+- `--icase` makes the match case-insensitive, guarding against DNS
+  0x20-encoding (some resolvers randomize query name case as an
+  anti-spoofing measure) causing an occasional missed match.
+- Only matched packets are redirected to dnsmasq (`172.28.0.2:5353`) —
+  everything else is left completely alone by this rule.
 
-**Rule order matters**: this DNAT rule must be placed **before** the
-wg-easy-admin exception rule and the NETMAP rules in PREROUTING. The client's
-DNS queries target the wg0 gateway address (`10.200.0.1`), which falls
-inside the translated subnet (`10.200.0.0/24`). In iptables' `nat` table, a
-packet stops being evaluated by further rules in the same chain once it
-matches a NAT target. If NETMAP ran first, it would silently rewrite the
-destination to `192.168.1.1` and the DNS interception rule below it would
-never run — with no errors, making this very hard to spot.
+**Rule order matters**: this DNAT rule must still be placed **before** the
+wg-easy-admin exception rule and the NETMAP rules in PREROUTING, since both
+`10.200.0.1` (the gateway) and `10.200.0.60` (Pi-hole's translated address,
+now the configured DNS) fall inside the translated subnet
+(`10.200.0.0/24`). In iptables' `nat` table, a packet stops being evaluated
+by further rules in the same chain once it matches a NAT target — if
+NETMAP ran first, a `pimlicoa.duckdns.org` query sent to `10.200.0.60`
+would get silently rewritten to `192.168.1.60` before the DNS rule ever
+saw it, and would never reach dnsmasq for rewriting.
 
 ### 3. dnsmasq Domain Rewriting
 dnsmasq receives the redirected query and applies rewrite rules:
@@ -73,12 +117,14 @@ dnsmasq receives the redirected query and applies rewrite rules:
 ```bash
 # From dnsmasq.conf
 address=/pimlicoa.duckdns.org/10.200.0.60   # wildcard: covers all subdomains
-server=10.200.0.60  # Upstream for other queries
+server=10.200.0.60  # Defensive fallback only — see below
 ```
 
 For this example:
 - Query for `nginx.pimlicoa.duckdns.org` (or any other subdomain, e.g. `immich.`, `portainer.`) → returns `10.200.0.60` (locally rewritten)
-- Query for anything outside the domain → forwarded to Pi-hole (10.200.0.60)
+- Since the PostUp rule now only ever redirects `pimlicoa.duckdns.org`
+  queries to dnsmasq in the first place, the `server=` upstream line is a
+  defensive fallback that should rarely (if ever) be exercised in practice.
 
 ### 4. MASQUERADE Return Traffic
 Response traffic from dnsmasq needs to appear to come from wg-easy, not from dnsmasq:
@@ -96,23 +142,22 @@ This rule:
 
 ## Common Issues and Solutions
 
-### Issue 1: "Still getting 192.168.1.60 from Pi-hole"
+### Issue 1: "Getting 192.168.1.60 from Pi-hole instead of 10.200.0.60"
 
-**Cause**: DNS query is going directly to Pi-hole (10.200.0.60), bypassing the VPN gateway and iptables rules.
+**Cause**: The query's payload didn't match the DNS interception rule's
+domain content — either the client isn't querying a `pimlicoa.duckdns.org`
+subdomain, or (rarely) DNS 0x20-encoding produced a case variant the
+`--icase` flag didn't catch (check that `--icase` is actually present in
+the installed rule — see below).
 
-**Solution**: 
-1. Check VPN client DNS configuration:
-   ```
-   # Should be set to VPN gateway, NOT Pi-hole
-   DNS = 10.200.0.1  # ✓ Correct
-   DNS = 10.200.0.60 # ✗ Wrong - bypasses interception
-   ```
-
-2. Verify rules are applied:
+**Solution**:
+1. Verify rules are applied and include the content match:
    ```bash
    docker exec wg-easy iptables -t nat -S | grep 5353
    ```
-   Should show DNS redirect rules.
+   Should show DNS redirect rules with `-m string ... --hex-string ... --icase`.
+
+2. Confirm the client is actually querying a name under `pimlicoa.duckdns.org` — non-matching domains are expected to bypass dnsmasq entirely and resolve straight from Pi-hole (this is the intended RFC-006 behavior, not a bug).
 
 ### Issue 2: "dnsmasq not receiving queries" (0 packets on dnsmasq's interface)
 
@@ -130,11 +175,18 @@ cause `extraneous parameter` errors — just leave the directive out.)
 
 **Cause B (the sneaky one)**: A rule placed *before* the DNS DNAT rule in
 PREROUTING is catching the packet first — most likely the NETMAP rule,
-since the client's DNS query targets the wg0 gateway IP (`10.200.0.1`),
-which is inside the translated subnet (`10.200.0.0/24`). Once NETMAP claims
-the packet, no further NAT rules in that chain apply and dnsmasq never
-sees it. **Fix: DNS interception rules must be the first NAT rules applied
-in PostUp**, before the wg-easy-admin exception and before NETMAP.
+since a `pimlicoa.duckdns.org` query is typically sent to Pi-hole's
+translated address (`10.200.0.60`), which is inside the translated subnet
+(`10.200.0.0/24`). Once NETMAP claims the packet, no further NAT rules in
+that chain apply and dnsmasq never sees it. **Fix: DNS interception rules
+must be the first NAT rules applied in PostUp**, before the wg-easy-admin
+exception and before NETMAP.
+
+**Cause C**: The `xt_string` kernel module isn't loaded/available, so the
+`-m string` match silently fails to apply (iptables itself would normally
+error out loading the rule if the module load fails outright — check
+`docker logs wg-easy-hooks-bootstrap` for `modprobe xt_string` errors, and
+confirm the rule is actually present via `iptables -t nat -S`).
 
 **How to confirm this is happening** (definitive diagnostic, avoids guessing):
 ```bash
@@ -233,12 +285,20 @@ available" since there's no service literally named that.
 
 ## Testing DNS Interception
 
-### From VPN Client (should be intercepted)
+### From VPN Client, `pimlicoa.duckdns.org` domain (should be intercepted/rewritten)
 ```bash
 nslookup nginx.pimlicoa.duckdns.org
 # Expected:
-# Server: 10.200.0.1  (VPN gateway, not Pi-hole)
-# Address: 10.200.0.60 (translated address, not 192.168.1.60)
+# Server: 10.200.0.60 (Pi-hole's translated address, as configured)
+# Address: 10.200.0.60 (translated address, not 192.168.1.60 — dnsmasq rewrote it)
+```
+
+### From VPN Client, any other domain (should NOT be intercepted — reaches Pi-hole directly)
+```bash
+nslookup example.com
+# Expected: resolves normally, unaffected by dnsmasq
+# docker exec dnsmasq-wg-easy tail /var/log/dnsmasq.log should show NO entry for this query
+# Pi-hole's Query Log should show the client's real WireGuard tunnel IP as the requester
 ```
 
 ### From LAN Client (should NOT be intercepted)
@@ -313,9 +373,9 @@ needed.
   cache-size=500
   ```
 
-- **Upstream forwarding**: Queries not matched by rewrites are forwarded to Pi-hole (10.200.0.60)
+- **Upstream forwarding**: only exercised as a defensive fallback now — queries reaching dnsmasq at all should already be `pimlicoa.duckdns.org` matches, answered directly by the `address=` rewrite rule.
 
-- **Latency**: DNS interception adds ~1-2ms latency (DNAT redirect + dnsmasq processing)
+- **Latency**: DNS interception adds ~1-2ms latency (DNAT redirect + dnsmasq processing) — now only for `pimlicoa.duckdns.org` queries; everything else has no added latency at all.
 
 ## Security Notes
 
@@ -325,9 +385,13 @@ needed.
 
 3. **No logging of rewrites**: By default, dnsmasq logs all queries. Sensitive queries can be filtered using dnsmasq log facilities.
 
+4. **Client identity preservation (RFC-006)**: since only `pimlicoa.duckdns.org` queries are proxied through dnsmasq, Pi-hole's Query Log now shows each client's real WireGuard tunnel IP for every other domain — previously all VPN client DNS traffic was funneled through dnsmasq's app-layer forwarding, and Pi-hole only ever saw dnsmasq's own source IP.
+
 ## References
 
 - [dnsmasq documentation](http://www.thekelleys.org.uk/dnsmasq/docs/dnsmasq-man.html)
 - [iptables DNAT and MASQUERADE](https://linux.die.net/man/8/iptables)
+- [iptables string match extension](https://man7.org/linux/man-pages/man8/iptables-extensions.8.html)
 - RFC-001: Overlap subnet translation
 - RFC-003: DNS reachability over WireGuard
+- RFC-006: VPN client DNS identity preservation

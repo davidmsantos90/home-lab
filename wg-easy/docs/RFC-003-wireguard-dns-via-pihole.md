@@ -65,3 +65,26 @@ the gateway is up but briefly slow. This is an accepted trade-off for
 resilience; omit the second entry (set `WG_VPN_DNS=10.200.0.1` only) if
 strict interception guarantees matter more than fallback connectivity.
 
+## Update (superseded default, again — RFC-006)
+
+The default changed once more, from `WG_VPN_DNS=10.200.0.1,1.1.1.1` (the
+gateway first) to `WG_VPN_DNS=10.200.0.60,1.1.1.1` (Pi-hole's translated
+address first). This reverses the "superseded default" decision above, but
+doesn't reintroduce the bug it fixed: that decision existed because the old
+DNS DNAT rule matched purely on `-i wg0 --dport 53`, with no way to tell
+`pimlicoa.duckdns.org` queries apart from anything else — pointing DNS
+straight at Pi-hole skipped the rule entirely.
+
+RFC-006 changes the DNS DNAT rule to match on the query's **content**
+(an L7 string match on the domain's DNS wire-format bytes) instead of relying
+on the client hitting a specific address. This means it still catches
+`pimlicoa.duckdns.org` queries wherever they're sent, including straight to
+Pi-hole's translated address — so pointing DNS there directly is safe again,
+and has the added benefit of letting every *other* query bypass dnsmasq
+entirely (preserving the client's real tunnel IP in Pi-hole's Query Log; see
+RFC-006 for the full rationale).
+
+## Related
+
+- [RFC-006 — VPN Client DNS Identity Preservation](./RFC-006-vpn-client-dns-identity.md)
+
