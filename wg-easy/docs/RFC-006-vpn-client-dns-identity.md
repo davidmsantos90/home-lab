@@ -155,6 +155,51 @@ Worth revisiting if 100% DNS identity coverage (including the
 `pimlicoa.duckdns.org` domain itself) becomes a real requirement rather than
 a nice-to-have.
 
+## Investigated and rejected: preserving identity for *all* LAN-bound traffic
+
+Beyond the DNS-specific case above, a broader question came up: could VPN
+clients' real tunnel IP (`10.8.0.x`, assigned per-peer by wg-easy) be
+preserved for **all** LAN-bound traffic, not just DNS — i.e. stop
+masquerading VPN clients to the Pi's own address entirely for `192.168.1.0/24`
+destinations, so Pi-hole's Query Log (and any other LAN service's own logs)
+would show each client's real, stable tunnel IP directly?
+
+Mechanically this only requires excluding LAN-destined traffic from the
+existing blanket MASQUERADE rule:
+
+```
+iptables -t nat -A POSTROUTING -s 10.8.0.0/24 ! -d 192.168.1.0/24 -o "$DEFAULT_IF" -j MASQUERADE
+```
+
+Internet-bound traffic keeps being masqueraded (required — the public
+internet has no route back to RFC1918 space, nor should it), while
+LAN-bound traffic would leave with its real `10.8.0.x` source intact.
+
+This was rejected — not because it's technically wrong, but because it has a
+hard external dependency that isn't satisfiable here: for a LAN device
+(Pi-hole, or anything else) to actually reply to a `10.8.0.x` source, the
+**router** needs a static route telling it `10.8.0.0/24` lives behind the
+Pi's real LAN IP. Checked and confirmed: **the router in this setup does not
+support static routes** (no routing-table page, only static ARP — a
+same-segment IP↔MAC pinning feature, unrelated to cross-subnet routing).
+Without that route, LAN replies to a masquerade-free client would simply be
+undeliverable.
+
+A parallel idea — giving each peer a dedicated, real LAN-routable identity
+via a new `macvlan` network on the physical NIC (avoiding the need for a
+router-side route, since a macvlan address is natively ARPable on the LAN) —
+was also considered, but requires provisioning a new IP per peer as clients
+are added/removed (wg-easy has no webhook/event mechanism for this,
+confirmed via its source — only manual polling of `GET /api/client` would
+work), materially more ongoing complexity than this fix is worth right now
+given the router constraint above makes the *simpler* variant of this idea
+already a non-starter.
+
+**Status**: on hold. Revisit only if the router is ever replaced with one
+that supports static routes, or if per-peer LAN identity becomes a hard
+requirement significant enough to justify a macvlan-based peer-provisioning
+script despite the added maintenance surface.
+
 ## Validation Plan
 
 1. Confirm `docker exec wg-easy iptables -t nat -S | grep 5353` shows the
