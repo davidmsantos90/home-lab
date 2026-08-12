@@ -251,6 +251,7 @@ case "$COMMAND" in
 esac
 
 if [ "$COMMAND" = "access-sync" ]; then
+    export HOME_LAB_DIR="$SCRIPT_DIR"
     (cd "$SCRIPT_DIR/wg-easy" && python3 ./access-control-sync.py "$@")
     exit $?
 fi

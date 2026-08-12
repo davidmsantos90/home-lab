@@ -31,7 +31,12 @@ FORWARD_RULES = [
 ]
 
 
-def repo_root() -> pathlib.Path:
+def get_home_lab_dir() -> pathlib.Path:
+    """Get HOME_LAB_DIR from environment, fall back to repo root detection."""
+    home_lab_dir = os.getenv("HOME_LAB_DIR")
+    if home_lab_dir:
+        return pathlib.Path(home_lab_dir)
+    # Fallback: detect from script location (wg-easy/access-control-sync.py -> ../home-lab)
     return pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -284,7 +289,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Sync wg-easy access-control rules")
     parser.add_argument(
         "--policies",
-        default=str(repo_root() / "access-control" / "policies.json"),
+        default=str(get_home_lab_dir() / "access-control" / "policies.json"),
         help="Path to access policy JSON file",
     )
     parser.add_argument("--apply", action="store_true", help="Apply rules live inside the wg-easy container")
@@ -292,7 +297,7 @@ def main() -> int:
 
     policy_path = pathlib.Path(args.policies)
     if not policy_path.exists():
-        example_path = repo_root() / "access-control" / "policies.json.example"
+        example_path = get_home_lab_dir() / "access-control" / "policies.json.example"
         if not args.apply and example_path.exists() and policy_path.name == "policies.json":
             policy_path = example_path
             print(f"Policy file not found, using example for dry run: {policy_path}")
