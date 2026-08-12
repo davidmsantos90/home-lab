@@ -224,6 +224,7 @@ usage() {
     echo "  fix-netns  Detect/fix a stale network namespace on the app"
     echo "             container after its tailscale sidecar was recreated"
     echo "             on its own (see Troubleshooting in README.md)"
+    echo "  access-sync Sync wg-easy access-control rules (manual, no restart)"
     echo ""
     echo -e "${BOLD}Services:${RESET} ${ALL_SERVICES[*]}"
     echo ""
@@ -233,6 +234,7 @@ usage() {
     echo "  $0 update immich jellyfin   # update two services"
     echo "  $0 stop                     # stop all services"
     echo "  $0 fix-netns nginx-proxy-manager  # fix a stale netns after a sidecar recreate"
+    echo "  $0 access-sync                    # dry-run wg-easy access-control sync"
 }
 
 if [ $# -lt 1 ]; then
@@ -243,10 +245,15 @@ COMMAND=$1; shift
 
 # Validate command
 case "$COMMAND" in
-    start|stop|restart|update|status|fix-netns) ;;
+    start|stop|restart|update|status|fix-netns|access-sync) ;;
     help|--help|-h) usage; exit 0 ;;
     *) error "lab" "Unknown command: $COMMAND"; usage; exit 1 ;;
 esac
+
+if [ "$COMMAND" = "access-sync" ]; then
+    (cd "$SCRIPT_DIR/wg-easy" && python3 ./access-control-sync.py "$@")
+    exit $?
+fi
 
 # Resolve target services
 if [ $# -eq 0 ]; then

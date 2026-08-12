@@ -1,0 +1,34 @@
+{
+  "groups": {
+    "family": [
+      "iphone",
+      "tablet"
+    ]
+  },
+  "rules": [
+    {
+      "source": "macbook",
+      "destination": "192.168.1.60",
+      "protocol": "tcp",
+      "port": 443,
+      "action": "allow"
+    },
+    {
+      "source_group": "family",
+      "destination": "192.168.1.60",
+      "protocol": "tcp",
+      "port": 443,
+      "action": "allow"
+    },
+    {
+      "source": "macbook",
+      "destination": "0.0.0.0/0",
+      "action": "allow"
+    },
+    {
+      "source": "iphone",
+      "destination": "macbook",
+      "action": "deny"
+    }
+  ]
+}
