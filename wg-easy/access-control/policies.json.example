@@ -29,6 +29,13 @@
       "source": "iphone",
       "destination": "macbook",
       "action": "deny"
+    },
+    {
+      "source": "*",
+      "destination": "10.8.0.1",
+      "action": "allow",
+      "_comment": "Allow all peers to reach the gateway"
     }
   ]
 }
+

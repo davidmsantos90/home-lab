@@ -166,6 +166,10 @@ def expand_selector(selector, peer_map: dict[str, str], groups: dict[str, list[s
     if not isinstance(selector, str):
         raise SystemExit(f"Unsupported selector type: {selector!r}")
 
+    # Magic keyword: "*" expands to all active peers
+    if selector == "*":
+        return list(peer_map.values())
+
     if selector in groups:
         return expand_group(selector, groups, peer_map)
     if selector in peer_map:
