@@ -32,12 +32,16 @@ FORWARD_RULES = [
 
 
 def get_home_lab_dir() -> pathlib.Path:
-    """Get HOME_LAB_DIR from environment, fall back to repo root detection."""
-    home_lab_dir = os.getenv("HOME_LAB_DIR")
+    """Get HOME_LAB_DIR from env or wg-easy/.env, fall back to repo root."""
+    home_lab_dir = setting("HOME_LAB_DIR")
     if home_lab_dir:
         return pathlib.Path(home_lab_dir)
     # Fallback: detect from script location (wg-easy/access-control-sync.py -> ../home-lab)
     return pathlib.Path(__file__).resolve().parents[1]
+
+
+def wg_easy_dir() -> pathlib.Path:
+    return pathlib.Path(__file__).resolve().parent
 
 
 def load_env_file(path: pathlib.Path) -> dict[str, str]:
@@ -61,7 +65,7 @@ def load_env_file(path: pathlib.Path) -> dict[str, str]:
 
 
 def setting(name: str, default: str | None = None) -> str | None:
-    env_file = load_env_file(repo_root() / ".env")
+    env_file = load_env_file(wg_easy_dir() / ".env")
     return os.environ.get(name) or env_file.get(name) or default
 
 
