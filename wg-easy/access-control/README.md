@@ -43,6 +43,8 @@ In `source`, `source_group`, `destination`, and `destination_group` fields, you 
 - `action` — `"allow"`, `"deny"`/`"drop"`, or `"reject"`
   - `deny`/`drop` silently drops packets
   - `reject` actively rejects packets (TCP uses reset for faster failures)
+All access-control rules apply to NEW connections only; established and related
+traffic is accepted by the firewall state rule before policy evaluation.
 
 ### Examples
 

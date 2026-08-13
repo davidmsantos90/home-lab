@@ -25,6 +25,19 @@ from http.cookiejar import CookieJar
 
 
 CHAIN_NAME = "WG_ACCESS_CONTROL"
+NEW_CONN_MATCH = ["-m", "conntrack", "--ctstate", "NEW"]
+ESTABLISHED_CONN_ACCEPT = [
+    "-t",
+    "filter",
+    "-A",
+    CHAIN_NAME,
+    "-m",
+    "conntrack",
+    "--ctstate",
+    "ESTABLISHED,RELATED",
+    "-j",
+    "ACCEPT",
+]
 FORWARD_RULES = [
     ["-t", "filter", "-D", "FORWARD", "-i", "wg0", "-j", "ACCEPT"],
     ["-t", "filter", "-D", "FORWARD", "-o", "wg0", "-j", "ACCEPT"],
@@ -235,6 +248,7 @@ def rule_to_iptables(rule: dict, peer_map: dict[str, str], groups: dict[str, lis
                     command += ["-p", protocol]
                 if port is not None:
                     command += ["--dport", str(port)]
+                command += NEW_CONN_MATCH
                 if action == "allow":
                     command += ["-j", "ACCEPT"]
                 elif action in {"deny", "drop"}:
@@ -282,9 +296,9 @@ def remove_forwards() -> None:
 
 def apply_rules(commands: list[list[str]]) -> None:
     ensure_chain()
+    run_iptables(ESTABLISHED_CONN_ACCEPT)
     for command in commands:
         run_iptables(command)
-    run_iptables(["-t", "filter", "-A", CHAIN_NAME, "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "ACCEPT"])
     run_iptables(["-t", "filter", "-A", CHAIN_NAME, "-j", "DROP"])
     ensure_jump()
     remove_forwards()

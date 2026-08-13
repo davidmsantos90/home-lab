@@ -201,6 +201,10 @@ The Peer Access Manager is **not responsible for managing WireGuard peers**.
 
 Instead, it consumes peer information from the `wg-easy` API.
 
+The firewall layer MUST be stateful so that established and related traffic
+continues to flow even when a reverse-direction deny rule exists for new
+connections.
+
 ---
 
 ## 7. Peer Identity
@@ -266,6 +270,10 @@ action: deny
 ```
 
 This allows policies to be significantly more granular than simple group membership.
+
+Policy semantics are directional for **new connections**: a `deny` rule means
+“prevent new connections initiated by the source toward the destination.”
+It does **not** mean “drop every packet in both directions between those peers.”
 
 ---
 
@@ -392,11 +400,45 @@ rules:
     action: allow
 ```
 
+The reverse path for any allowed connection does not need a separate allow
+rule because return traffic is covered by the stateful firewall rule.
+
 ---
 
 ## 11. Runtime Firewall Implementation
 
 The firewall configuration MUST be mutable without restarting `wg-easy`.
+
+The generated `WG_ACCESS_CONTROL` chain MUST conceptually follow this order:
+
+```text
+ESTABLISHED,RELATED -> ACCEPT
+Specific NEW connection policies
+Generic NEW connection policies
+Default DROP
+```
+
+In other words:
+
+```text
+packet
+  |
+  v
+WG_ACCESS_CONTROL
+  |
+  +-- ESTABLISHED,RELATED --> ACCEPT
+  |
+  +-- NEW --> evaluate access-control policies
+  |
+  +-- no matching rule --> DROP
+```
+
+This is an implementation requirement, not a change to the declarative
+`policies.json` model.
+
+Within the NEW-connection policy section, more specific rules MUST be evaluated
+before broader rules. For example, a TCP/8022 allow for a peer pair must be
+placed before a generic deny covering the same source and destination.
 
 ### 11.1 iptables + ipsets
 
@@ -414,7 +456,8 @@ immich_allowed:
 A permanent firewall rule could then reference the set:
 
 ```bash
-iptables -A FORWARD     -s 10.8.0.0/24     -d 10.200.0.5     -p tcp     --dport 443     -m set     --match-set immich_allowed src     -j ACCEPT
+iptables -A WG_ACCESS_CONTROL -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A WG_ACCESS_CONTROL     -s 10.8.0.0/24     -d 10.200.0.5     -p tcp     --dport 443     -m set     --match-set immich_allowed src     -j ACCEPT
 ```
 
 Adding a peer requires only:
@@ -449,7 +492,7 @@ The initial implementation MAY continue using `iptables + ipset` if this reduces
 
 ---
 
-## 12. Stateful Connections
+## 12. Stateful Connections and Policy Semantics
 
 The firewall MUST allow established and related traffic.
 
@@ -464,16 +507,24 @@ This avoids requiring separate rules for response traffic.
 Example:
 
 ```text
-10.8.0.3 → Immich:443
+MacBook → Phone TCP/8022  ALLOW
+Phone   → MacBook         DENY
 ```
 
-is explicitly allowed, and the response:
+means:
 
 ```text
-Immich → 10.8.0.3
+MacBook initiates TCP connection to Phone:8022   -> ALLOW
+Phone replies to that TCP connection             -> ALLOW
+Phone initiates new TCP connection to MacBook    -> DENY
 ```
 
-is automatically permitted as part of the established connection.
+The response traffic remains permitted because it is `ESTABLISHED`, not because
+of a separate reverse-direction allow rule.
+
+Rule counters SHOULD reflect that the generic deny rule only matches new
+connection attempts, while established return traffic is accepted by the
+stateful fast-path.
 
 ---
 
@@ -484,12 +535,14 @@ Peer-to-peer traffic MUST be treated as a separate access-control dimension.
 For example:
 
 ```text
-10.8.0.2 → 10.8.0.3:*  ALLOW
-10.8.0.3 → 10.8.0.2:*  ALLOW
-10.8.0.4 → 10.8.0.2:*  DENY
+10.8.0.2 → 10.8.0.3:8022  ALLOW
+10.8.0.3 → 10.8.0.2:*     DENY
+10.8.0.4 → 10.8.0.2:*     DENY
 ```
 
 This traffic is forwarded through `wg-easy` and therefore can be controlled using its firewall.
+The deny rule above blocks **new** connections initiated by the source peer, not
+return packets for a connection that was already permitted.
 
 ---
 
@@ -791,7 +844,7 @@ The final architecture should look approximately like:
                     ┌─────────────────────┐
                     │ Firewall             │
                     │                     │
-                    │ Dynamic policies    │
+                    │ Stateful policies   │
                     │ ipsets / nftables   │
                     └─────────┬───────────┘
                               │
@@ -827,3 +880,24 @@ The existing hooks remain responsible for static routing/NAT infrastructure, whi
 - `wg-easy/access-control-sync.py` — manual sync tool
 - `wg-easy/access-control/policies.json.example` — starter policy file
 - `lab.sh access-sync` — convenience entry point
+
+---
+
+## 24. Validation and Acceptance Criteria
+
+The implementation is considered correct when the following cases hold:
+
+1. Mac → Phone ICMP is allowed when policy allows it.
+2. Phone → Mac ICMP is denied when policy denies it.
+3. Mac → Phone TCP/8022 connection succeeds when allowed.
+4. Phone → Mac TCP/8022 response traffic succeeds when it belongs to the
+   already established Mac-initiated connection.
+5. Phone → Mac TCP/8022 as a newly initiated connection is denied.
+6. Phone → Mac SSH/22 is denied when explicitly denied.
+7. Existing established connections continue working even when a broader
+   new-connection deny rule exists.
+8. Rule counters show that `ESTABLISHED,RELATED` traffic is accepted by the
+   stateful rule rather than hitting the generic deny rule.
+
+These checks validate the firewall implementation; they do not require changing
+the declarative `policies.json` model.
