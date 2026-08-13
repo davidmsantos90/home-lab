@@ -28,7 +28,7 @@
     {
       "source": "iphone",
       "destination": "macbook",
-      "action": "deny"
+      "action": "reject"
     },
     {
       "source": "*",
@@ -38,4 +38,3 @@
     }
   ]
 }
-

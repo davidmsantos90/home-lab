@@ -40,7 +40,9 @@ In `source`, `source_group`, `destination`, and `destination_group` fields, you 
 - `destination` or `destination_group` — where traffic goes to
 - `protocol` — `"tcp"`, `"udp"`, or omit for both
 - `port` — specific port number, or omit for all ports
-- `action` — `"allow"` or `"deny"`
+- `action` — `"allow"`, `"deny"`/`"drop"`, or `"reject"`
+  - `deny`/`drop` silently drops packets
+  - `reject` actively rejects packets (TCP uses reset for faster failures)
 
 ### Examples
 
@@ -52,9 +54,9 @@ In `source`, `source_group`, `destination`, and `destination_group` fields, you 
   },
   "rules": [
     { "source": "*", "destination": "10.8.0.1", "action": "allow" },
+    { "source": "iphone", "destination": "192.168.1.60", "protocol": "tcp", "port": 22, "action": "reject" },
     { "source_group": "family", "destination": "192.168.1.60", "protocol": "tcp", "port": 443, "action": "allow" },
     { "source": "iphone", "destination": "macbook", "action": "deny" }
   ]
 }
 ```
-

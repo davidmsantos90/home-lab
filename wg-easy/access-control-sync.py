@@ -201,7 +201,7 @@ def protocol_variants(protocol: str | None, port: int | None) -> list[str | None
 
 def rule_to_iptables(rule: dict, peer_map: dict[str, str], groups: dict[str, list[str]]) -> list[list[str]]:
     action = str(rule.get("action", "")).lower()
-    if action not in {"allow", "deny", "drop"}:
+    if action not in {"allow", "deny", "drop", "reject"}:
         raise SystemExit(f"Unsupported action: {rule.get('action')!r}")
 
     if "source" in rule and "source_group" in rule:
@@ -235,7 +235,14 @@ def rule_to_iptables(rule: dict, peer_map: dict[str, str], groups: dict[str, lis
                     command += ["-p", protocol]
                 if port is not None:
                     command += ["--dport", str(port)]
-                command += ["-j", "ACCEPT" if action == "allow" else "DROP"]
+                if action == "allow":
+                    command += ["-j", "ACCEPT"]
+                elif action in {"deny", "drop"}:
+                    command += ["-j", "DROP"]
+                else:
+                    command += ["-j", "REJECT"]
+                    if protocol == "tcp":
+                        command += ["--reject-with", "tcp-reset"]
                 commands.append(command)
     return commands
 
