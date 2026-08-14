@@ -2,1019 +2,481 @@
 
 ## Status
 
-**In progress**
+**CURRENT / IMPLEMENTED**
 
-## Summary
-
-This RFC proposes a dynamic access-control layer for the WireGuard VPN managed by `wg-easy`.
-
-The goal is to allow granular control over which WireGuard peers can communicate with:
-
-- other WireGuard peers;
-- homelab services;
-- LAN devices;
-- specific ports/protocols;
-- the Internet.
-
-The solution must **not require restarting `wg-easy` or the WireGuard interface when access rules are changed**.
-
-The proposed architecture separates:
-
-1. WireGuard peer management;
-2. routing;
-3. NAT;
-4. firewall policy;
-5. future UI-based policy management.
+This RFC documents the access-control and VPN-infrastructure architecture that is
+already working in the repository, and defines the next planned abstractions on
+top of it.
 
 ---
 
-## 1. Motivation
+## 1. Summary
 
-The current WireGuard deployment uses `wg-easy` as the central VPN gateway.
+The current WireGuard deployment uses `wg-easy` as the VPN gateway and applies
+runtime firewall rules without requiring a `wg-easy` restart for normal policy
+changes.
 
-WireGuard peers are assigned addresses from:
+The implemented architecture separates:
 
-```text
-10.8.0.0/24
-```
+- VPN infrastructure traffic;
+- peer-to-peer access control;
+- peer-to-LAN access control;
+- NAT / NETMAP / MASQUERADE routing;
+- policy synchronization / compilation.
 
-with the `wg-easy` gateway using:
-
-```text
-10.8.0.1
-```
-
-The current configuration uses a broad `MASQUERADE` rule for traffic from `10.8.0.0/24` leaving through `eth1`. This is required for some traffic paths, particularly Internet access, but hides the original peer IP from downstream services.
-
-The proposed access-control layer allows policies such as:
-
-```text
-MacBook → Immich:443    ALLOW
-MacBook → NAS:445       DENY
-iPhone  → Immich:443    ALLOW
-iPhone  → NAS:445       DENY
-Tablet  → Immich:443    ALLOW
-Tablet  → iPhone:*      DENY
-```
+The next planned evolution is a logical policy model with peer, host, and
+service inventories, so administrators define intent in names rather than raw IP
+and port tuples.
 
 ---
 
-## 2. Goals
+## 2. CURRENT / IMPLEMENTED
 
-The system MUST:
+### 2.1 WireGuard topology
 
-- support access control between WireGuard peers;
-- support access control from peers to homelab services;
-- support access control to specific IPs, ports and protocols;
-- support both `ALLOW` and `DENY` policies;
-- allow rules to be changed at runtime;
-- avoid restarting `wg-easy` when policies change;
-- preserve the existing WireGuard peer configuration;
-- use the `wg-easy` API as the source of truth for active peers;
-- allow policies to reference peers by identity rather than hardcoded IP addresses where practical;
-- support group-based policies as a convenience;
-- support fully granular per-peer policies;
-- remain compatible with the existing NAT/routing architecture.
-- separate VPN infrastructure traffic from peer/LAN access-control policy
-  evaluation.
+Implemented:
 
----
+- WireGuard subnet: `10.8.0.0/24`
+- WireGuard gateway/server: `10.8.0.1`
+- Peers use `10.8.0.x` addresses
+- Peers use `10.8.0.1` as DNS
 
-## 3. Non-Goals
+This is the currently supported DNS endpoint for peers.
 
-This RFC does not propose replacing `wg-easy`.
+### 2.2 VPN infrastructure separation
 
-It does not define:
-
-- WireGuard key management;
-- peer creation/deletion;
-- VPN authentication;
-- the Internet NAT architecture;
-- the existing network-conflict `NETMAP` mechanism;
-- replacement of the Vodafone router;
-- replacement of the existing WireGuard configuration.
-- exposing Docker-internal implementation details in user policy files.
-
-Those remain separate concerns.
-
----
-
-## 4. Current Architecture
-
-The current architecture is approximately:
-
-```text
-                         Internet
-                            │
-                            │
-                       Vodafone Router
-                            │
-                       UDP 51820
-                            │
-                            ▼
-                       wg-easy
-                  ┌──────────────────┐
-                  │                  │
-                  │ wg0              │
-                  │ 10.8.0.1/24      │
-                  │                  │
-                  │ eth1             │
-                  │ 192.168.100.9    │
-                  │                  │
-                  └────────┬─────────┘
-                           │
-                    Homelab network
-```
-
-The `wg-easy` routing table currently contains:
-
-```text
-10.8.0.0/24       dev wg0
-192.168.100.0/24  dev eth1
-default           via 192.168.100.1
-```
-
-The WireGuard interface is:
-
-```text
-wg0
-10.8.0.1/24
-```
-
----
-
-## 5. Existing NAT
-
-The current `POSTROUTING` configuration contains:
-
-```text
-MASQUERADE  all  --  *  eth1  10.8.0.0/24  0.0.0.0/0
-```
-
-This means all traffic originating from the WireGuard subnet and leaving through `eth1` is masqueraded.
-
-The existing configuration also contains network-conflict handling:
-
-```text
-NETMAP  all  --  *  *  192.168.1.0/24  0.0.0.0/0
-       to:10.200.0.0/24
-```
-
-There is also an existing SNAT rule for another internal mapping.
-
-These rules are outside the scope of the access-control layer, although the firewall implementation MUST take their behaviour into account.
-
----
-
-## 6. Proposed Architecture
-
-The proposed architecture introduces a separate **Peer Access Manager**.
-
-```text
-                       ┌──────────────────┐
-                       │      wg-easy     │
-                       │                  │
-                       │ WireGuard + API  │
-                       └────────┬─────────┘
-                                │
-                                │ peer information
-                                ▼
-                    ┌───────────────────────┐
-                    │   Peer Access Manager │
-                    │                       │
-                    │ - peer discovery      │
-                    │ - identities          │
-                    │ - groups              │
-                    │ - access policies     │
-                    └──────────┬────────────┘
-                               │
-                               │ runtime updates
-                               ▼
-                    ┌───────────────────────┐
-                    │ Firewall / nftables   │
-                    │ or iptables + ipsets  │
-                    └──────────┬────────────┘
-                               │
-              ┌────────────────┼────────────────┐
-              ▼                ▼                ▼
-          Peer-to-peer      Homelab           Internet
-```
-
-The Peer Access Manager is **not responsible for managing WireGuard peers**.
-
-Instead, it consumes peer information from the `wg-easy` API.
-
-The firewall layer MUST be stateful so that established and related traffic
-continues to flow even when a reverse-direction deny rule exists for new
-connections.
-
----
-
-## 7. Peer Identity
-
-Policies SHOULD reference a logical peer identity rather than directly referencing an IP address.
-
-For example:
-
-```yaml
-peer:
-  id: macbook
-  wireguard_ip: 10.8.0.2
-```
-
-The policy can then reference:
-
-```text
-macbook
-```
-
-rather than:
-
-```text
-10.8.0.2
-```
-
-This allows the firewall layer to automatically update its implementation if the peer's address changes.
-
-The `wg-easy` API remains the authoritative source for the current WireGuard IP.
-
----
-
-## 8. Access Policy Model
-
-The policy model SHOULD support the following dimensions:
-
-```text
-Source peer
-Destination peer/service/IP
-Protocol
-Port
-Action
-```
-
-For example:
-
-```yaml
-source: macbook
-destination: immich
-protocol: tcp
-port: 443
-action: allow
-```
-
-Another example:
-
-```yaml
-source: iphone
-destination: nas
-protocol: tcp
-port: 445
-action: deny
-```
-
-This allows policies to be significantly more granular than simple group membership.
-
-Policy semantics are directional for **new connections**: a `deny` rule means
-“prevent new connections initiated by the source toward the destination.”
-It does **not** mean “drop every packet in both directions between those peers.”
-
-A rule such as:
-
-```json
-{"source":"dams-s23","destination":"mac-work","action":"deny"}
-```
-
-must block new connections from `dams-s23` to `mac-work`, while still allowing
-that same peer to reach VPN infrastructure services (for example DNS via
-`WG_INFRASTRUCTURE`).
-
----
-
-## 9. Groups
-
-Groups SHOULD be supported as an optional convenience mechanism.
-
-For example:
-
-```yaml
-groups:
-  admins:
-    - macbook
-    - desktop
-
-  family:
-    - iphone
-    - tablet
-```
-
-A policy could then reference:
-
-```yaml
-source_group: family
-destination: immich
-protocol: tcp
-port: 443
-action: allow
-```
-
-Groups MUST NOT replace individual peer policies.
-
-A peer SHOULD be able to have both:
-
-- group-based permissions;
-- peer-specific exceptions.
-
----
-
-## 10. Example Policy
-
-Consider the following peers:
-
-```text
-MacBook    10.8.0.2
-iPhone     10.8.0.3
-Tablet     10.8.0.4
-```
-
-and services:
-
-```text
-Immich     10.200.0.5:443
-Pi-hole    10.200.0.1:53
-NAS        10.200.0.10:445
-```
-
-Desired policy:
-
-```text
-MacBook:
-  → Immich:443       ALLOW
-  → Pi-hole:53       ALLOW
-  → NAS:445          ALLOW
-  → all peers        ALLOW
-
-iPhone:
-  → Immich:443       ALLOW
-  → Pi-hole:53       ALLOW
-  → NAS:445          DENY
-  → MacBook:*        DENY
-
-Tablet:
-  → Immich:443       ALLOW
-  → Pi-hole:53       DENY
-  → NAS:445          DENY
-  → other peers      DENY
-```
-
-This can be represented as:
-
-```yaml
-rules:
-  - source: macbook
-    destination: immich
-    protocol: tcp
-    port: 443
-    action: allow
-
-  - source: macbook
-    destination: pihole
-    protocol: udp
-    port: 53
-    action: allow
-
-  - source: macbook
-    destination: nas
-    protocol: tcp
-    port: 445
-    action: allow
-
-  - source: iphone
-    destination: immich
-    protocol: tcp
-    port: 443
-    action: allow
-
-  - source: iphone
-    destination: pihole
-    protocol: udp
-    port: 53
-    action: allow
-
-  - source: iphone
-    destination: nas
-    protocol: tcp
-    port: 445
-    action: deny
-
-  - source: tablet
-    destination: immich
-    protocol: tcp
-    port: 443
-    action: allow
-```
-
-The reverse path for any allowed connection does not need a separate allow
-rule because return traffic is covered by the stateful firewall rule.
-
----
-
-## 11. Runtime Firewall Implementation
-
-The firewall configuration MUST be mutable without restarting `wg-easy`.
-
-### 11.0 VPN Infrastructure vs Peer Policy
-
-VPN infrastructure traffic MUST be evaluated separately from peer ACL rules.
-
-Infrastructure traffic includes services required for the VPN to operate
-correctly (starting with VPN DNS/Pi-hole integration), and MUST NOT be blocked
-by peer-to-peer or peer-to-LAN deny policies.
-
-For this deployment, WireGuard peers use:
-
-```text
-DNS = 10.8.0.1
-```
-
-where `10.8.0.1` is the wg0 gateway endpoint. Pi-hole remains the actual DNS
-resolver behind that endpoint.
-
-The forwarding path MUST therefore evaluate a dedicated infrastructure chain
-before `WG_ACCESS_CONTROL`:
+Traffic is split into two logical filter paths:
 
 ```text
 FORWARD
-  -> WG_INFRASTRUCTURE
-  -> WG_ACCESS_CONTROL
+  ├── WG_INFRASTRUCTURE
+  │     └── DNS -> Pi-hole
+  └── WG_ACCESS_CONTROL
+        ├── peer -> peer
+        ├── peer -> LAN
+        └── default DROP
 ```
 
-`WG_INFRASTRUCTURE` should contain explicit allow rules for infrastructure
-services, then `RETURN` for unrelated packets.
+DNS is treated as VPN infrastructure traffic, not as an ordinary peer ACL.
 
-For the current deployment, at minimum:
-
-- `-i wg0 -p udp -d 172.28.0.2 --dport 5353 -j ACCEPT`
-- `-i wg0 -p tcp -d 172.28.0.2 --dport 5353 -j ACCEPT`
-- `-j RETURN`
-
-These rules are implementation details and must not be exposed through
-`policies.json`.
-
-DNS forwarding in NAT MUST match on interface/port only (wg0 + destination
-port 53), not on DNS payload contents. The prior string-inspection approach
-that only matched `pimlicoa.duckdns.org` is removed.
-
-`10.200.0.0/24` remains reserved for LAN anti-conflict NETMAP translation and
-is not the peer DNS endpoint.
-
-### 11.1 Stateful peer policy chain
-
-The generated `WG_ACCESS_CONTROL` chain MUST conceptually follow this order:
+Implemented DNS path:
 
 ```text
-ESTABLISHED,RELATED -> ACCEPT
-Specific NEW connection policies
-Generic NEW connection policies
-Default DROP
+WireGuard peer
+  -> 10.8.0.1:53
+  -> VPN infrastructure
+  -> DNAT
+  -> Pi-hole 172.28.0.2:5353
 ```
 
-In other words:
+All DNS queries arriving on `wg0` are forwarded to Pi-hole.
+
+Implemented behavior:
+
+- UDP DNS is forwarded
+- TCP DNS is forwarded
+- no DNS payload inspection is used
+- the previous STRING-matching approach has been removed
+
+The following remain valid:
+
+- `dig @10.8.0.1 google.com`
+- `dig @10.8.0.1 nginx.pimlicoa.duckdns.org`
+- `dig @10.8.0.1 google.com +tcp`
+- `dig @10.8.0.1 nginx.pimlicoa.duckdns.org +tcp`
+
+Pi-hole remains the actual resolver.
+
+### 2.3 Anti-conflict translation
+
+Implemented:
+
+- `10.200.0.0/24` is the translated LAN address space
+- `NETMAP` maps `10.200.0.0/24` to `192.168.1.0/24`
+- example: `nginx.pimlicoa.duckdns.org -> 10.200.0.60 -> 192.168.1.60`
+
+This translation layer stays independent from DNS and ACL semantics.
+
+### 2.4 Internet routing and NAT
+
+Implemented:
+
+- Internet routing remains separate from DNS
+- MASQUERADE remains independent
+- peers retain Internet access while using `DNS = 10.8.0.1`
+
+### 2.5 Dynamic access control
+
+Implemented:
+
+- peer-to-peer rules
+- peer-to-LAN rules
+- granular protocol/port rules
+- deterministic rule priority
+- default deny
+- explicit REJECT
+- DROP fallback
+- dynamic application without restarting `wg-easy`
+
+Runtime model:
 
 ```text
-packet
-  |
-  v
-WG_ACCESS_CONTROL
-  |
-  +-- ESTABLISHED,RELATED --> ACCEPT
-  |
-  +-- NEW --> evaluate access-control policies
-  |
-  +-- no matching rule --> DROP
+logical policy
+  -> policy compiler / synchronizer
+  -> iptables runtime state
 ```
 
-This is an implementation requirement, not a change to the declarative
-`policies.json` model.
+The logical policy is the source of truth.
+iptables is generated runtime state.
 
-Within the NEW-connection policy section, more specific rules MUST be evaluated
-before broader rules. For example, a TCP/8022 allow for a peer pair must be
-placed before a generic deny covering the same source and destination.
+Rules are applied idempotently so repeated synchronization does not create
+duplicate runtime state.
 
-### 11.2 iptables + ipsets
+REJECT vs DROP:
 
-Repeated policy targets can be represented using `ipset`.
-
-For example:
-
-```text
-immich_allowed:
-  10.8.0.2
-  10.8.0.3
-  10.8.0.4
-```
-
-A permanent firewall rule could then reference the set:
-
-```bash
-iptables -A WG_INFRASTRUCTURE -i wg0 -p udp -d 172.28.0.2 --dport 5353 -j ACCEPT
-iptables -A WG_INFRASTRUCTURE -i wg0 -p tcp -d 172.28.0.2 --dport 5353 -j ACCEPT
-iptables -A WG_INFRASTRUCTURE -j RETURN
-iptables -A WG_ACCESS_CONTROL -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -A WG_ACCESS_CONTROL     -s 10.8.0.0/24     -d 10.200.0.5     -p tcp     --dport 443     -m set     --match-set immich_allowed src     -j ACCEPT
-```
-
-Adding a peer requires only:
-
-```bash
-ipset add immich_allowed 10.8.0.5
-```
-
-Removing it:
-
-```bash
-ipset del immich_allowed 10.8.0.5
-```
-
-No WireGuard restart is required.
-
-### 11.3 nftables
-
-`nftables` SHOULD be considered for the long-term implementation.
-
-It provides a more structured way of expressing:
-
-- peer-to-peer rules;
-- IP sets;
-- service sets;
-- protocol/port restrictions;
-- stateful connections;
-- logging;
-- dynamic updates.
-
-The initial implementation MAY continue using `iptables + ipset` if this reduces complexity and risk.
-
----
-
-## 12. Stateful Connections and Policy Semantics
-
-The firewall MUST allow established and related traffic.
-
-Conceptually:
-
-```text
-ESTABLISHED,RELATED → ACCEPT
-```
-
-This avoids requiring separate rules for response traffic.
+- REJECT: explicit intentional denial with immediate feedback
+- DROP: default-deny / fallback behavior
 
 Example:
 
-```text
-MacBook → Phone TCP/8022  ALLOW
-Phone   → MacBook         DENY
+- `phone -> Raspberry:22 = REJECT`
+- unmatched traffic = DROP
+
+### 2.6 Current peer name resolution
+
+Peer names are already supported.
+
+Example policy:
+
+```json
+{
+  "source": "dams-s23",
+  "destination": "mac-work",
+  "action": "allow"
+}
 ```
 
-means:
+Current behavior:
 
-```text
-MacBook initiates TCP connection to Phone:8022   -> ALLOW
-Phone replies to that TCP connection             -> ALLOW
-Phone initiates new TCP connection to MacBook    -> DENY
-```
+- a manual synchronization mechanism resolves peer names to WireGuard IPs
+- the policy layer uses logical peer names
+- the synchronizer resolves them to runtime IPs before generating iptables
 
-The response traffic remains permitted because it is `ESTABLISHED`, not because
-of a separate reverse-direction allow rule.
+Example runtime mapping:
 
-Rule counters SHOULD reflect that the generic deny rule only matches new
-connection attempts, while established return traffic is accepted by the
-stateful fast-path.
+- `dams-s23 -> 10.8.0.4`
+- `mac-work -> 10.8.0.2`
+
+Existing IP-based rules remain supported.
+
+### 2.7 Current implementation boundary
+
+The repository currently implements:
+
+- a manual sync tool for access-control rules
+- persistent hook-based infrastructure rules
+- `WG_INFRASTRUCTURE`
+- `WG_ACCESS_CONTROL`
+- DNS forwarding to Pi-hole
+- peer-name resolution
+
+It does **not** yet implement:
+
+- LAN host/resource inventories
+- service catalogs
+- automatic peer discovery
+- a management UI
 
 ---
 
-## 13. Peer-to-Peer Communication
+## 3. CURRENT POLICY MODEL
 
-Peer-to-peer traffic MUST be treated as a separate access-control dimension.
+The current rule model supports:
 
-For example:
+- `source`
+- `destination`
+- `protocol`
+- `port`
+- `action`
+
+and optionally:
+
+- `source_group`
+- `destination_group`
+- wildcard selectors such as `*`
+
+Allowed actions currently include:
+
+- `allow`
+- `deny`
+- `drop`
+- `reject`
+
+The model is directional for new connections.
+
+More specific rules must be evaluated before broader rules.
+
+Examples:
+
+- `phone -> Raspberry -> tcp/22 -> REJECT`
+- `phone -> Raspberry -> ALL -> ALLOW`
+- `phone -> Mac -> tcp/8022 -> ALLOW`
+- `phone -> Mac -> ALL -> DENY`
+
+The policy model, not manual iptables insertion order, defines the intended
+priority.
+
+---
+
+## 4. FUTURE / PLANNED
+
+### 4.1 LAN host / resource name resolution
+
+Planned next step:
+
+```json
+{
+  "source": "dams-s23",
+  "destination": "raspberry",
+  "protocol": "tcp",
+  "port": 22,
+  "action": "reject"
+}
+```
+
+With inventory data such as:
+
+```json
+{
+  "hosts": {
+    "raspberry": {
+      "address": "192.168.1.60"
+    }
+  }
+}
+```
+
+The compiler would resolve `raspberry -> 192.168.1.60` before generating
+iptables rules.
+
+This is not required to be implemented now.
+Existing IP-based rules must remain supported.
+
+### 4.2 Service abstraction
+
+Planned optional abstraction:
+
+```json
+{
+  "source": "dams-s23",
+  "destination": "raspberry",
+  "service": "ssh",
+  "action": "reject"
+}
+```
+
+Example service catalog:
+
+```json
+{
+  "services": {
+    "ssh": {
+      "protocol": "tcp",
+      "port": 22
+    },
+    "sftp-phone": {
+      "protocol": "tcp",
+      "port": 8022
+    },
+    "https": {
+      "protocol": "tcp",
+      "port": 443
+    }
+  }
+}
+```
+
+This is an abstraction on top of the existing protocol/port model, not a
+replacement for it.
+
+Direct protocol/port rules must remain supported.
+
+### 4.3 Policy compiler improvements
+
+Future compiler responsibilities:
+
+1. Resolve peer names to WireGuard IPs.
+2. Resolve host/resource names to LAN IPs.
+3. Resolve optional service names to protocol/port definitions.
+4. Validate references.
+5. Validate policy syntax.
+6. Preserve rule priority.
+7. Generate deterministic iptables rules.
+8. Apply changes incrementally.
+9. Avoid duplicate rules.
+10. Remove obsolete generated rules.
+11. Avoid restarting `wg-easy`.
+12. Keep infrastructure rules separate from access-control rules.
+
+The same logical policy should produce deterministic runtime rules.
+
+### 4.4 Automatic peer discovery
+
+Planned `wg-easy` API integration:
+
+- peer name
+- WireGuard IP
+- useful peer state information
+
+Planned flow:
 
 ```text
-10.8.0.2 → 10.8.0.3:8022  ALLOW
-10.8.0.3 → 10.8.0.2:*     DENY
-10.8.0.4 → 10.8.0.2:*     DENY
+wg-easy API
+  -> peer inventory
+  -> policy compiler
+  -> iptables
 ```
 
-This traffic is forwarded through `wg-easy` and therefore can be controlled using its firewall.
-The deny rule above blocks **new** connections initiated by the source peer, not
-return packets for a connection that was already permitted.
+Current manual peer-name-to-IP synchronization remains valid until this future
+step is implemented.
 
----
+### 4.5 Management UI
 
-## 14. NAT Separation
-
-The firewall layer MUST remain separate from NAT.
-
-The current broad MASQUERADE rule:
+A future management UI should sit on top of the logical policy model:
 
 ```text
-10.8.0.0/24 → eth1 → MASQUERADE
+Management UI
+  -> logical policy
+  -> policy compiler
+  -> iptables
 ```
 
-should not be directly modified by the access-control UI.
+The UI should show logical names wherever possible.
+It should not implement networking logic itself.
 
-If future work introduces exceptions to preserve peer identity for internal traffic, those rules SHOULD remain part of the dedicated NAT/routing layer.
+---
 
-Conceptually:
+## 5. ARCHITECTURAL PRINCIPLES
+
+### 5.1 Policy as source of truth
+
+The logical policy configuration is the source of truth.
+iptables is generated runtime state.
+
+Administrators should normally edit the logical policy, not generated iptables
+rules. Manual iptables inspection remains useful for troubleshooting.
+
+### 5.2 What the logical policy should express
+
+The long-term model is:
 
 ```text
-Routing/NAT:
-  - WireGuard routing
-  - MASQUERADE
-  - NETMAP
-  - SNAT
-  - internal NAT exceptions
-
-Firewall:
-  - peer permissions
-  - service permissions
-  - port restrictions
-  - peer-to-peer policies
+WHO -> CAN ACCESS -> WHAT -> USING WHICH SERVICE -> ACTION
 ```
 
----
-
-## 15. Hooks
-
-Existing `wg-easy` hooks SHOULD continue to be used for **static infrastructure configuration**.
-
-For example:
+not:
 
 ```text
-hooks/
-├── routing.sh
-└── nat.sh
+source IP -> destination IP -> protocol -> port -> iptables rule
 ```
 
-These can configure:
+The compiler translates the logical policy into deterministic runtime rules.
 
-- forwarding;
-- NAT;
-- NETMAP;
-- static routing;
-- baseline firewall requirements.
+The abstraction must preserve:
 
-In particular, VPN infrastructure forwarding rules (such as DNS allow rules in
-`WG_INFRASTRUCTURE`) SHOULD be installed by the same persistent hook mechanism
-used for NAT/NETMAP so they are recreated automatically after interface/container
-restart.
-
-However, peer-specific access rules MUST NOT be hardcoded into these hooks.
-
-This avoids the need to restart `wg-easy` every time a peer is added or its permissions change.
+- granular access control
+- deterministic priority
+- default deny
+- explicit reject
+- dynamic rule updates
+- no `wg-easy` restart
+- separation of infrastructure and access-control traffic
+- compatibility with existing NETMAP / MASQUERADE architecture
 
 ---
 
-## 16. Peer Synchronisation
+## 6. CURRENT VS FUTURE TABLE
 
-The Peer Access Manager SHOULD periodically or event-driven query the `wg-easy` API.
-
-When a new peer appears:
-
-```text
-wg-easy
-   ↓
-API
-   ↓
-Peer Access Manager
-   ↓
-new peer detected
-   ↓
-peer appears as "Unconfigured"
-   ↓
-administrator chooses policy
-   ↓
-firewall updated
-```
-
-When a peer is removed:
-
-```text
-wg-easy
-   ↓
-API
-   ↓
-Peer Access Manager
-   ↓
-peer removed
-   ↓
-firewall references cleaned up
-```
-
-The system SHOULD prevent stale IP addresses from remaining in firewall sets.
+| CURRENT / IMPLEMENTED | FUTURE / PLANNED |
+| --- | --- |
+| dynamic peer/LAN ACLs | LAN host/resource names |
+| granular rules | service aliases |
+| rule priority | automatic peer synchronization through wg-easy API |
+| default deny | richer compiler validation |
+| explicit REJECT | management UI |
+| DROP fallback | policy editing through the UI |
+| no wg-easy restart required | peer inventory UI |
+| WG_INFRASTRUCTURE chain | service catalog UI |
+| WG_ACCESS_CONTROL chain | compiler-managed host/service abstractions |
+| DNS at `10.8.0.1` | automatic inventory reconciliation |
+| Pi-hole forwarding | richer state reporting |
+| NETMAP anti-conflict translation | policy import/export tooling |
+| MASQUERADE | — |
+| manual peer name -> IP synchronization | — |
 
 ---
 
-## 17. Future UI
+## 7. VALIDATION
 
-A future web UI SHOULD expose the policy model without requiring direct firewall interaction.
+This RFC does not change the current networking configuration.
 
-Example:
+The documented architecture remains consistent with these working behaviors:
 
-```text
-Peer: MacBook
-IP: 10.8.0.2
+### DNS
 
-Access Rules
+- `dig @10.8.0.1 google.com`
+- `dig @10.8.0.1 nginx.pimlicoa.duckdns.org`
+- `dig @10.8.0.1 google.com +tcp`
+- `dig @10.8.0.1 nginx.pimlicoa.duckdns.org +tcp`
 
-Destination       Protocol    Port    Action
-------------------------------------------------
-Immich             TCP        443     ALLOW
-Pi-hole            UDP        53      ALLOW
-NAS                TCP        445     DENY
-iPhone             ANY        ANY     ALLOW
-Tablet             ANY        ANY     DENY
-```
+### Local service
 
-The UI SHOULD support:
+- `curl -vk https://nginx.pimlicoa.duckdns.org`
 
-- peer selection;
-- destination selection;
-- protocol selection;
-- port selection;
-- allow/deny;
-- groups;
-- peer-specific overrides;
-- rule ordering/priority;
-- active/inactive rules;
-- basic connection logging.
+### Internet
+
+- `ping 1.1.1.1`
+- `curl -4 -I --max-time 10 https://www.google.com`
+
+### Access control
+
+- `phone -> Raspberry SSH = REJECT`
+- `phone -> Mac SFTP = ALLOW`
+- `phone -> Mac other traffic = DENY`
+- `Mac -> phone = ALLOW`
 
 ---
 
-## 18. Configuration Storage
+## 8. IMPLEMENTATION NOTES
 
-The access policy SHOULD be stored separately from the WireGuard configuration.
+Current repository reality:
 
-For example:
+- the access-control layer is implemented as a manual sync tool plus runtime
+  iptables manipulation;
+- the compiler/synchronizer already resolves peer names;
+- DNS infrastructure is separated from peer ACLs;
+- host/resource names and service abstractions are not yet implemented;
+- the management UI is still future work.
 
-```text
-data/
-├── wg-easy/
-└── access-control/
-    └── policies.yaml
-```
-
-The policy configuration SHOULD be version-controlled where appropriate.
-
-The WireGuard private keys MUST NOT be stored in the access-control repository.
+That means the RFC should treat the current system as a working baseline, not as
+a fully complete policy platform.
 
 ---
 
-## 19. Security Considerations
-
-The Peer Access Manager controls network-level access and therefore MUST be treated as a privileged component.
-
-The manager SHOULD:
-
-- run with the minimum required privileges;
-- expose its UI only to trusted networks;
-- require authentication;
-- validate all policy changes;
-- prevent arbitrary shell command execution;
-- log policy changes;
-- avoid exposing the firewall API directly to clients.
-
-The `wg-easy` API credentials MUST NOT be exposed to the browser.
-
-Infrastructure bypass MUST remain narrow: it only permits explicitly-defined VPN
-infrastructure flows. It MUST NOT become a broad allow-path that bypasses
-peer/LAN policy for arbitrary destinations.
-
----
-
-## 20. Failure Behaviour
-
-If the Peer Access Manager stops running:
-
-- existing firewall rules SHOULD remain active;
-- WireGuard connectivity SHOULD continue;
-- existing NAT/routing SHOULD continue;
-- no automatic fail-open behaviour SHOULD occur.
-
-The manager should therefore be responsible for **policy management**, not packet forwarding itself.
-
----
-
-## 21. Design Principle
-
-The core architectural principle is:
-
-```text
-WireGuard
-    = connectivity + peer identity
-
-Routing
-    = where traffic goes
-
-NAT
-    = how source/destination addresses are translated
-
-Firewall
-    = who is allowed to communicate with whom
-
-Peer Access Manager
-    = manages firewall policy
-
-Future UI
-    = human-friendly interface to the policy
-```
-
-This separation allows each component to evolve independently.
-
----
-
-## 22. Implementation Phases
-
-### Phase 1 — Baseline
-
-- Document current `wg-easy` routing/NAT.
-- Keep existing hooks.
-- Introduce a baseline firewall policy.
-- Ensure peer-to-peer and peer-to-homelab forwarding is explicitly controlled.
-- First implementation slice: a manual sync tool that reads policy JSON,
-  resolves peer identities from the `wg-easy` API, and applies live iptables
-  rules without restarting `wg-easy`.
-- Add a dedicated `WG_INFRASTRUCTURE` chain before `WG_ACCESS_CONTROL` so VPN
-  DNS infrastructure traffic is explicitly allowed independent of peer ACLs.
-
-### Phase 2 — Dynamic firewall sets
-
-- Introduce `ipset` or `nftables` sets.
-- Remove peer-specific firewall rules from startup hooks.
-- Verify rules can be changed without restarting `wg-easy`.
-
-### Phase 3 — Policy model
-
-Implement a declarative policy format:
-
-```yaml
-source:
-destination:
-protocol:
-port:
-action:
-```
-
-Support both peer-specific and group-based rules.
-
-### Phase 4 — Peer synchronisation
-
-Integrate with the `wg-easy` API.
-
-Automatically:
-
-- discover peers;
-- map peer identity → current WireGuard IP;
-- detect additions/removals;
-- update firewall sets.
-
-This first implementation intentionally uses manual sync only; no polling or
-event-driven loop is required yet.
-
-### Phase 5 — Web UI
-
-Implement a small management UI for:
-
-- peers;
-- groups;
-- services;
-- access rules;
-- policy status;
-- firewall synchronisation.
-
----
-
-## 23. Example End State
-
-The final architecture should look approximately like:
-
-```text
-                           Internet
-                              │
-                              │
-                       Vodafone Router
-                              │
-                         UDP 51820
-                              │
-                              ▼
-                     ┌─────────────────┐
-                     │     wg-easy     │
-                     │                 │
-                     │ WireGuard       │
-                     │ 10.8.0.0/24     │
-                     │                 │
-                     │ Routing + NAT   │
-                     └────────┬────────┘
-                              │
-                              ▼
-                    ┌─────────────────────┐
-                    │ Firewall             │
-                    │                     │
-                    │ Stateful policies   │
-                    │ ipsets / nftables   │
-                    └─────────┬───────────┘
-                              │
-             ┌────────────────┼────────────────┐
-             │                │                │
-             ▼                ▼                ▼
-          Peer ↔ Peer      Homelab          Internet
-
-
-                         ┌───────────────┐
-                         │ Peer Access   │
-                         │ Manager       │
-                         │               │
-                         │ wg-easy API   │
-                         │ Policy store  │
-                         │ Runtime sync  │
-                         └───────┬───────┘
-                                 │
-                                 ▼
-                              Future UI
-```
-
-## Decision
-
-Adopt a **dynamic firewall policy layer independent of `wg-easy` restarts**, with support for both **granular per-peer rules and group-based rules**.
-
-Retain a default-deny model while separating VPN infrastructure handling:
-
-- explicitly allow required infrastructure traffic in `WG_INFRASTRUCTURE`;
-- evaluate peer/LAN ACLs in `WG_ACCESS_CONTROL`;
-- deny unmatched traffic by default.
-
-The initial implementation may use `iptables + ipset` to minimise changes to the existing environment. `nftables` should remain the preferred candidate for a future, more sophisticated implementation.
-
-The existing hooks remain responsible for static routing/NAT infrastructure, while peer-specific access policy is managed dynamically at runtime.
-
-### Initial implementation slice
-
-- `wg-easy/access-control-sync.py` — manual sync tool
-- `wg-easy/bootstrap-hooks.sh` — persistent NAT/hooks infrastructure setup
-- `wg-easy/access-control/policies.json.example` — starter policy file
-- `lab.sh access-sync` — convenience entry point
-
----
-
-## 24. Validation and Acceptance Criteria
-
-The implementation is considered correct when the following cases hold:
-
-### DNS infrastructure tests
-
-1. From a WireGuard peer:
-   `dig @10.8.0.1 google.com`
-   returns `NOERROR` with a valid public IP answer.
-2. From a WireGuard peer:
-   `dig @10.8.0.1 nginx.pimlicoa.duckdns.org`
-   returns `10.200.0.60`.
-3. From a WireGuard peer:
-   `dig @10.8.0.1 google.com +tcp`
-   returns `NOERROR` with a valid public IP answer.
-4. From a WireGuard peer:
-   `dig @10.8.0.1 nginx.pimlicoa.duckdns.org +tcp`
-   returns `10.200.0.60`.
-5. With peer DNS configured as `10.8.0.1`, `ping google.com` resolves and
-   succeeds.
-6. `curl -4 -I --max-time 10 https://www.google.com` succeeds.
-
-### Peer isolation and stateful behavior
-
-7. Mac → Phone ICMP is allowed when policy allows it.
-8. Phone → Mac ICMP is denied when policy denies it.
-9. Mac → Phone TCP/8022 connection succeeds when allowed.
-10. Phone → Mac TCP/8022 response traffic succeeds when it belongs to the
-   already established Mac-initiated connection.
-11. Phone → Mac TCP/8022 as a newly initiated connection is denied.
-12. Phone → Mac SSH/22 is denied when explicitly denied.
-13. Existing established connections continue working even when a broader
-   new-connection deny rule exists.
-14. Rule counters show that `ESTABLISHED,RELATED` traffic is accepted by the
-    stateful rule rather than hitting the generic deny rule.
-
-### Infrastructure separation tests
-
-15. With `phone -> mac-work` denied, `phone -> VPN DNS` still works.
-16. Peer-to-Raspberry rules still behave by policy priority (for example a
-    broad allow can be overridden by a more specific deny such as `:22`).
-17. `ping -c 4 1.1.1.1` and `curl -4 -I --max-time 10 https://1.1.1.1`
-    continue to work unchanged.
-
-### NPM path tests
-
-18. `curl -vk https://10.200.0.60` may fail TLS/SNI routing and is not a DNS
-    failure by itself.
-19. `curl -vk https://nginx.pimlicoa.duckdns.org` succeeds with DNS resolution
-    to `10.200.0.60`, TCP connect, TLS handshake, certificate match, and
-    expected NPM routing (no `--resolve` required when DNS path is correct).
-
-These checks validate the firewall implementation; they do not require changing
-the declarative `policies.json` model.
+## 9. Decision
+
+Adopt the current dynamic firewall policy layer as the baseline and evolve it
+toward a logical policy model.
+
+The next architecture should preserve:
+
+- granular per-peer control
+- deterministic rule priority
+- default deny
+- explicit reject
+- dynamic updates without `wg-easy` restart
+- separation of infrastructure and access-control traffic
+- compatibility with current DNS, NETMAP, and MASQUERADE behavior
+
+The future UI and compiler layers should translate logical intent into
+deterministic runtime iptables state.
