@@ -24,32 +24,19 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/nginx-proxy-manager/
 ## Using local (Pi-hole) DNS names in proxy hosts
 
 By default, a proxy host's "Forward Hostname/IP" can target a Docker
-container/service name (e.g. `tailscale-immich`) resolved via Docker's
-embedded DNS, since NPM shares the `homelab` bridge network with every other
-service's Tailscale sidecar (or, for services without a sidecar like
-`wg-easy`, the service's own container name). With `PIHOLE_LAN_IP` set (see
-above), you can instead use any name registered in Pi-hole's **Local DNS
-Records** — useful if you want proxy host targets to stay stable/readable
-even if the underlying container names change, or to point at
-non-containerized LAN devices.
+container/service name resolved via Docker's embedded DNS, since NPM shares
+the `homelab` bridge network with the other application containers. With
+`PIHOLE_LAN_IP` set (see above), you can instead use any name registered in
+Pi-hole's **Local DNS Records** — useful if you want proxy host targets to
+stay stable/readable even if the underlying container names change, or to
+point at non-containerized LAN devices.
 
-**If Pi-hole goes offline**: Docker container name resolution
-(`tailscale-<service>`) is unaffected, since that's resolved locally by
-Docker's embedded DNS and never reaches Pi-hole or the fallback server.
-`DNS_FALLBACK` only protects *external* DNS lookups (e.g. Let's Encrypt) —
-proxy hosts using Pi-hole local DNS records will still fail to resolve until
-Pi-hole comes back, since Pi-hole is their only source of truth.
-
-**Caveat**: for services that still run behind a Tailscale sidecar, that
-sidecar may manage its own `/etc/resolv.conf` if DNS settings are pushed from
-your Tailnet admin console (MagicDNS), which could override the `dns:`
-setting after startup. If local DNS names stop resolving, check
-`docker exec tailscale-${SERVICE} cat /etc/resolv.conf` inside the container
-to confirm Pi-hole's IP is still listed; disabling DNS management for this
-Tailnet (or this device) if needed. This container (`nginx-proxy-manager`)
-no longer runs a Tailscale sidecar, so its own `dns:` setting is not at risk
-of being overridden this way — check `docker exec nginx-proxy-manager cat
-/etc/resolv.conf` directly if needed.
+**If Pi-hole goes offline**: Docker container name resolution is unaffected,
+since that's resolved locally by Docker's embedded DNS and never reaches
+Pi-hole or the fallback server. `DNS_FALLBACK` only protects *external* DNS
+lookups (e.g. Let's Encrypt) — proxy hosts using Pi-hole local DNS records
+will still fail to resolve until Pi-hole comes back, since Pi-hole is their
+only source of truth.
 
 ## Startup
 

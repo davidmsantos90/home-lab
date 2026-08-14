@@ -19,9 +19,9 @@ services:
       - "0.0.0.0:81:81/tcp"
 
     # Resolve local DNS names (e.g. Pi-hole "Local DNS Records") when setting
-    # a proxy host's Forward Hostname/IP, instead of relying on ambient
-    # Docker daemon DNS (which may or may not point at Pi-hole depending on
-    # host config) or hardcoded Docker container names.
+    # a proxy host's Forward Hostname/IP, instead of relying on ambient Docker
+    # daemon DNS (which may or may not point at Pi-hole depending on host
+    # config) or hardcoded container names.
     #
     # Fallback (1.1.1.1) only kicks in if Pi-hole is unreachable/times out —
     # not on a legitimate "not found" answer — so external/Let's Encrypt DNS
@@ -31,9 +31,8 @@ services:
     #
     # dns_search must be disabled: setting an explicit dns: list also makes
     # Docker copy the host's search domain (e.g. "lan") into this container's
-    # resolv.conf, which breaks bare Docker container-name resolution (e.g.
-    # "tailscale-immich" gets queried as "tailscale-immich.lan" and NXDOMAINs
-    # against Docker's embedded DNS). dns_search: [] is silently ignored by
+    # resolv.conf, which breaks bare Docker container-name resolution
+    # against Docker's embedded DNS. dns_search: [] is silently ignored by
     # Docker (the host's search domain still gets inherited) — dns_search:
     # ["."] is required to actually disable search-domain expansion and
     # restore literal name resolution for container names, while keeping the
@@ -52,10 +51,8 @@ services:
 
     networks:
       default: {}
-      homelab: {}   # No pinned IP needed anymore — nothing routes to NPM via a
-                    # static homelab address now that it's reachable on the
-                    # host's own real LAN IP; only needed so NPM can reach other
-                    # services' Tailscale sidecars by container name for proxy hosts.
+      homelab: {}   # NPM reaches the other application containers on the shared
+                    # homelab network by container name.
 
     restart: unless-stopped
 

@@ -1,75 +1,37 @@
-configs:
-  ts-serve:
-    content: |
-      {"TCP":{"443":{"HTTPS":true}},
-      "Web":{"$${TS_CERT_DOMAIN}:443":
-          {"Handlers":{"/":
-          {"Proxy":"http://127.0.0.1:32400"}}}},
-      "AllowFunnel":{"$${TS_CERT_DOMAIN}:443":false}}
-
 services:
-  # Tailscale Sidecar Configuration
-  tailscale:
-    image: tailscale/tailscale:latest
-    container_name: tailscale-${SERVICE}
-    hostname: ${SERVICE}
-    environment:
-      - TS_AUTHKEY=${TS_AUTHKEY}
-      - TS_STATE_DIR=/var/lib/tailscale
-      - TS_SERVE_CONFIG=/config/serve.json
-      - TS_USERSPACE=false
-      - TS_ENABLE_HEALTH_CHECK=true
-      - TS_LOCAL_ADDR_PORT=127.0.0.1:41234
-      - TS_AUTH_ONCE=true
-    configs:
-      - source: ts-serve
-        target: /config/serve.json
-    volumes:
-      - ${HOME_LAB_DIR:-.}/ts/config:/config
-      - ${HOME_LAB_DIR:-.}/ts/state:/var/lib/tailscale
-    devices:
-      - /dev/net/tun:/dev/net/tun
-    cap_add:
-      - net_admin
-    ports:
-      - "0.0.0.0:${SERVICEPORT}:${SERVICEPORT}"  # Plex web UI - local network
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:41234/healthz"]
-      interval: 1m
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-    networks:
-      - default
-      - homelab
-    restart: unless-stopped
-
   # Plex
   application:
     image: ${IMAGE_URL}
-    network_mode: service:tailscale
     container_name: app-${SERVICE}
     # Cap CPU usage so library scans/analysis/transcoding can't starve other
     # services (e.g. NPM) on this host's limited core count.
     cpus: ${PLEX_CPU_LIMIT:-2.0}
+
     environment:
       - PUID=1000
       - PGID=1000
       - TZ=${TZ}
       - VERSION=docker
       - PLEX_CLAIM=${PLEX_CLAIM}
+
     volumes:
       - ${HOME_LAB_DIR:-.}/config:/config
       - ${PLEX_MEDIA_PATH:-${HOME_LAB_DIR:-.}/media}:/media   # Mount your full media root here
-    depends_on:
-      tailscale:
-        condition: service_healthy
+
+    ports:
+      - "0.0.0.0:${SERVICEPORT}:32400/tcp"  # Plex web UI - local network
+
     healthcheck:
       test: ["CMD", "pgrep", "-f", "Plex Media Server"]
       interval: 1m
       timeout: 10s
       retries: 3
       start_period: 60s  # Plex takes time to start, especially after a migration
+
+    networks:
+      default: {}
+      homelab: {}
+
     restart: unless-stopped
 
 networks:

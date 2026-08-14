@@ -42,7 +42,7 @@ home-lab/
 | **Portainer** | `9000` | `https://portainer.<tailnet>.ts.net` |
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
-| **Jellyfin** | `8096` | `https://jellyfin.<tailnet>.ts.net` |
+| **Jellyfin** | `8096` | `https://jellyfin.pimlicoa.duckdns.org` |
 | **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
 | **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
 
@@ -109,7 +109,7 @@ docker compose up -d
 
 # Then for each other service:
 cd ../pihole   # (or immich, portainer, deluge, plex)
-# Edit .env — at minimum set TS_AUTHKEY and TZ
+# Edit .env — at minimum set TZ and any service-specific variables
 docker compose up -d
 ```
 
@@ -220,7 +220,7 @@ When adding proxy hosts in NPM, use the Tailscale container name as the upstream
 | Portainer | `tailscale-portainer` | `9000` |
 | Deluge | `tailscale-deluge` | `8112` |
 | Plex | `tailscale-plex` | `32400` |
-| Jellyfin | `tailscale-jellyfin` | `8096` |
+| Jellyfin | `app-jellyfin` | `8096` |
 
 For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — bridge containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
 
@@ -633,7 +633,7 @@ The script preserves paths relative to this repository, creates the destination 
 
 - `PIHOLE_WEBPASSWORD` in `pihole/.env`
 - `DB_PASSWORD` in `immich/.env`
-- `TS_AUTHKEY` in every `.env` file that still runs a Tailscale sidecar (not `wg-easy/.env` or `nginx-proxy-manager/.env`)
+- Tailscale now lives only on the host, so service `.env` files no longer need `TS_AUTHKEY`
 - `DUCKDNS_TOKEN`, `WG_EASY_HOST`, and `WG_EASY_ADMIN_PASSWORD` in `wg-easy/.env`
 
 Do **not** commit `.env` files to version control. Add them to `.gitignore`:

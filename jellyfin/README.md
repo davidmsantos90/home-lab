@@ -18,7 +18,7 @@ Jellyfin is a free, open-source media server — a self-hosted alternative to Pl
 | Watch history sync | ✅ | ✅ | |
 | External metadata agents | Limited | ✅ | Via plugins (TMDB, TVDB, AniDB, etc.) |
 | Lyrics | ❌ (3rd party) | ✅ | Built-in with LrcLib plugin |
-| Tailnet access | ✅ | ✅ | Via Tailscale Serve (`https://jellyfin.<tailnet>.ts.net`) |
+| Tailnet access | ✅ | ✅ | Via host Tailscale or NPM (`https://jellyfin.pimlicoa.duckdns.org`) |
 | No Plex account required | ❌ | ✅ | Fully local, no cloud dependency |
 
 ## Required changes for feature parity
@@ -96,7 +96,7 @@ Add a proxy host in NPM:
 |---|---|
 | Domain | `jellyfin.pimlicoa.duckdns.org` |
 | Scheme | `http` |
-| Upstream host | `tailscale-jellyfin` |
+| Upstream host | `app-jellyfin` |
 | Upstream port | `8096` |
 | SSL cert | `*.pimlicoa.duckdns.org` (wildcard) |
 
