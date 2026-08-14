@@ -24,6 +24,7 @@ The implemented architecture separates:
 - NAT / NETMAP / MASQUERADE routing;
 - policy synchronization / compilation;
 - dynamic selector-set compilation for repeated peer/address matches.
+- alias catalogs for groups, hosts, and services.
 
 The next planned evolution is a logical policy model with peer, host, and
 service inventories, so administrators define intent in names rather than raw IP
@@ -176,17 +177,18 @@ Existing IP-based rules remain supported.
 The repository currently implements:
 
 - a manual sync tool for access-control rules
+- `policies.json` as a rules-only JSON array
+- `aliases.json` for groups, hosts, and services
 - persistent hook-based infrastructure rules
 - `WG_INFRASTRUCTURE`
 - `WG_ACCESS_CONTROL`
 - DNS forwarding to Pi-hole
 - peer-name resolution
 - dynamic selector-set compilation
+- rule comments preserved in generated firewall state when supported
 
 It does **not** yet implement:
 
-- LAN host/resource inventories
-- service catalogs
 - automatic peer discovery
 - a management UI
 
@@ -194,13 +196,15 @@ It does **not** yet implement:
 
 ## 3. CURRENT POLICY MODEL
 
-The current rule model supports:
+The current rule model supports a `policies.json` array of rule objects with:
 
 - `source`
 - `destination`
+- `service`
 - `protocol`
 - `port`
 - `action`
+- optional `comment`
 
 and optionally:
 
@@ -219,6 +223,10 @@ The model is directional for new connections.
 
 More specific rules must be evaluated before broader rules.
 
+If a rule includes a comment, the compiler SHOULD preserve it in the generated
+runtime state whenever the target firewall backend supports comments or
+equivalent metadata.
+
 Examples:
 
 - `phone -> Raspberry -> tcp/22 -> REJECT`
@@ -233,99 +241,7 @@ priority.
 
 ## 4. FUTURE / PLANNED
 
-### 4.1 LAN host / resource name resolution
-
-Planned next step:
-
-```json
-{
-  "source": "dams-s23",
-  "destination": "raspberry",
-  "protocol": "tcp",
-  "port": 22,
-  "action": "reject"
-}
-```
-
-With inventory data such as:
-
-```json
-{
-  "hosts": {
-    "raspberry": {
-      "address": "192.168.1.60"
-    }
-  }
-}
-```
-
-The compiler would resolve `raspberry -> 192.168.1.60` before generating
-iptables rules.
-
-This is not required to be implemented now.
-Existing IP-based rules must remain supported.
-
-### 4.2 Service abstraction
-
-Planned optional abstraction:
-
-```json
-{
-  "source": "dams-s23",
-  "destination": "raspberry",
-  "service": "ssh",
-  "action": "reject"
-}
-```
-
-Example service catalog:
-
-```json
-{
-  "services": {
-    "ssh": {
-      "protocol": "tcp",
-      "port": 22
-    },
-    "sftp-phone": {
-      "protocol": "tcp",
-      "port": 8022
-    },
-    "https": {
-      "protocol": "tcp",
-      "port": 443
-    }
-  }
-}
-```
-
-This is an abstraction on top of the existing protocol/port model, not a
-replacement for it.
-
-Direct protocol/port rules must remain supported.
-
-### 4.3 Policy compiler improvements
-
-The current manual synchronizer already handles peer-name resolution, rule
-compilation, and deterministic runtime application for the implemented policy
-model. The remaining compiler work is:
-
-1. Resolve peer names to WireGuard IPs automatically from the wg-easy API.
-2. Resolve host/resource names to LAN IPs.
-3. Resolve optional service names to protocol/port definitions.
-4. Validate references.
-5. Validate policy syntax.
-6. Preserve rule priority.
-7. Generate deterministic iptables rules.
-8. Apply changes incrementally.
-9. Avoid duplicate rules.
-10. Remove obsolete generated rules.
-11. Avoid restarting `wg-easy`.
-12. Keep infrastructure rules separate from access-control rules.
-
-The same logical policy should produce deterministic runtime rules.
-
-### 4.4 Automatic peer discovery
+### 4.1 Automatic peer discovery
 
 Planned `wg-easy` API integration:
 
@@ -345,7 +261,7 @@ wg-easy API
 Current manual peer-name-to-IP synchronization remains valid until this future
 step is implemented.
 
-### 4.5 Management UI
+### 4.2 Management UI
 
 A future management UI should sit on top of the logical policy model:
 
@@ -358,6 +274,25 @@ Management UI
 
 The UI should show logical names wherever possible.
 It should not implement networking logic itself.
+
+### 4.3 Policy compiler improvements
+
+The current manual synchronizer already handles peer-name resolution, rule
+compilation, and deterministic runtime application for the implemented policy
+model. The remaining compiler work is:
+
+1. Resolve peer names to WireGuard IPs automatically from the wg-easy API.
+2. Validate references.
+3. Validate policy syntax.
+4. Preserve rule priority.
+5. Generate deterministic iptables rules.
+6. Apply changes incrementally.
+7. Avoid duplicate rules.
+8. Remove obsolete generated rules.
+9. Avoid restarting `wg-easy`.
+10. Keep infrastructure rules separate from access-control rules.
+
+The same logical policy should produce deterministic runtime rules.
 
 ---
 
@@ -404,21 +339,21 @@ The abstraction must preserve:
 
 | CURRENT / IMPLEMENTED | FUTURE / PLANNED |
 | --- | --- |
-| dynamic peer/LAN ACLs | LAN host/resource names |
-| granular rules | service aliases |
-| rule priority | automatic peer synchronization through wg-easy API |
-| default deny | richer compiler validation |
-| explicit REJECT | management UI |
-| DROP fallback | policy editing through the UI |
-| no wg-easy restart required | peer inventory UI |
-| WG_INFRASTRUCTURE chain | service catalog UI |
-| WG_ACCESS_CONTROL chain | compiler-managed host/service abstractions |
-| DNS at `10.8.0.1` | automatic inventory reconciliation |
-| Pi-hole forwarding | richer state reporting |
-| NETMAP anti-conflict translation | policy import/export tooling |
+| dynamic peer/LAN ACLs | automatic peer synchronization through wg-easy API |
+| granular rules | richer compiler validation |
+| rule priority | richer compiler validation |
+| default deny | management UI |
+| explicit REJECT | policy editing through the UI |
+| DROP fallback | peer inventory UI |
+| no wg-easy restart required | richer state reporting |
+| WG_INFRASTRUCTURE chain | policy import/export tooling |
+| WG_ACCESS_CONTROL chain | — |
+| DNS at `10.8.0.1` | — |
+| Pi-hole forwarding | — |
+| NETMAP anti-conflict translation | — |
 | MASQUERADE | — |
-| manual peer name -> IP synchronization | — |
 | selector-set compilation with ipset | — |
+| alias catalogs for groups, hosts, and services | — |
 
 ---
 
@@ -461,7 +396,7 @@ Current repository reality:
   iptables manipulation;
 - the compiler/synchronizer already resolves peer names;
 - DNS infrastructure is separated from peer ACLs;
-- host/resource names and service abstractions are not yet implemented;
+- host/resource aliases, service aliases, and rule comments are implemented;
 - the management UI is still future work.
 
 That means the RFC should treat the current system as a working baseline, not as

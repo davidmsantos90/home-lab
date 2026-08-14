@@ -1,40 +1,28 @@
-{
-  "groups": {
-    "family": [
-      "iphone",
-      "tablet"
-    ]
+[
+  {
+    "source_group": "family",
+    "destination": "raspberry",
+    "service": "ssh",
+    "action": "reject",
+    "comment": "Block SSH to Raspberry"
   },
-  "rules": [
-    {
-      "source": "macbook",
-      "destination": "192.168.1.60",
-      "protocol": "tcp",
-      "port": 443,
-      "action": "allow"
-    },
-    {
-      "source_group": "family",
-      "destination": "192.168.1.60",
-      "protocol": "tcp",
-      "port": 443,
-      "action": "allow"
-    },
-    {
-      "source": "macbook",
-      "destination": "0.0.0.0/0",
-      "action": "allow"
-    },
-    {
-      "source": "iphone",
-      "destination": "macbook",
-      "action": "reject"
-    },
-    {
-      "source": "*",
-      "destination": "10.8.0.1",
-      "action": "allow",
-      "_comment": "Allow all peers to reach the gateway"
-    }
-  ]
-}
+  {
+    "source": "iphone",
+    "destination": "macbook",
+    "action": "deny",
+    "comment": "Default phone to Mac deny"
+  },
+  {
+    "source": "macbook",
+    "destination": "phone",
+    "action": "allow",
+    "comment": "Allow Mac to phone"
+  },
+  {
+    "source": "dams-s23",
+    "destination": ["macbook", "raspberry"],
+    "service": ["https", "admin"],
+    "action": "allow",
+    "comment": "Allow multiple services"
+  }
+]

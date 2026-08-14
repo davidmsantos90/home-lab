@@ -1,0 +1,31 @@
+{
+  "groups": {
+    "family": ["iphone", "tablet"],
+    "work": {
+      "members": ["macbook", "dams-s23"]
+    }
+  },
+  "hosts": {
+    "raspberry": "192.168.1.60",
+    "nas": {
+      "address": "192.168.1.10",
+      "comment": "Storage server"
+    }
+  },
+  "services": {
+    "ssh": {
+      "protocol": "tcp",
+      "port": 22
+    },
+    "https": {
+      "protocol": "tcp",
+      "port": 443
+    },
+    "admin": {
+      "entries": [
+        { "protocol": "tcp", "port": 443 },
+        { "protocol": "tcp", "port": 8443 }
+      ]
+    }
+  }
+}
