@@ -24,7 +24,7 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/wg-easy/.env.example
 - `WG_EASY_HOST` (defaults to `pimlicoa.duckdns.org`)
 - `WG_EASY_ADMIN_USERNAME`, `WG_EASY_ADMIN_PASSWORD`
 - `TZ`
-- `WG_VPN_DNS` (defaults to `10.200.0.60,1.1.1.1`, comma-separated) for new/updated WireGuard client DNS — the first entry should be Pi-hole's translated address (RFC-006: DNS interception now matches on domain content, not destination, so it still catches `pimlicoa.duckdns.org` queries even sent straight to Pi-hole); additional entries act as a client-side fallback if Pi-hole is unreachable. See [DNS_INTERCEPTION.md](/Users/davsantos/github/misc/home-lab/wg-easy/DNS_INTERCEPTION.md)
+- `WG_VPN_DNS` (defaults to `10.8.0.1`) for new/updated WireGuard client DNS. Peers query the wg0 gateway, and wg-easy DNATs wg0 UDP/TCP port 53 to Pi-hole internally (`DNSMASQ_IP:5353`). `10.200.0.0/24` remains reserved for anti-conflict LAN translation, not as the peer DNS endpoint.
 - `WG_VPN_ALLOWED_IPS` (defaults to `10.200.0.0/24,192.168.1.0/24`) for new/updated client routes
 - `WG_VPN_PERSISTENT_KEEPALIVE` (defaults to `25`) seconds between client keepalive packets; prevents NAT/router mappings from expiring during idle periods (see [Troubleshooting](#troubleshooting))
 - `HOME_LAB_DIR` (defaults to `.`) base directory for WireGuard config/keys — set this to move this stack's persistent data elsewhere, e.g. an external drive (see the root [README.md](/Users/davsantos/github/misc/home-lab/README.md#relocating-a-services-data-home_lab_dir))
@@ -180,30 +180,33 @@ Why:
   broader translation would claim `10.200.0.9` first (it's inside the
   translated subnet)
 
-### DNS interception for multi-access-path support
+### DNS forwarding and local answer overrides
 
 **Problem**: Services like NPM need different DNS responses for different client types:
 - LAN clients: resolve to physical IP `192.168.1.60` (direct access)
 - Tailnet clients: resolve to physical IP `192.168.1.60` (routed via Tailscale)
 - VPN clients: need translated IP `10.200.0.60` (only reachable via NETMAP)
 
-**Solution**: dnsmasq DNS proxy intercepts VPN client queries and rewrites responses.
+**Solution**: all VPN client DNS queries go to the wg0 gateway, which DNATs them
+to dnsmasq/Pi-hole. dnsmasq then rewrites only the local homelab hostname
+responses that need translated addresses for overlapping clients.
 
 The setup includes:
-- **dnsmasq service** in wg-easy compose: listens on `127.0.0.1:5353`, forwards to Pi-hole
-- **DNS redirect rules** in PostUp hooks: redirect wg0 port 53 to localhost:5353
-- **dnsmasq.conf**: defines domain rewrites (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.60`)
+- **dnsmasq service** in wg-easy compose: listens on `127.0.0.1:5353`, forwards upstream to Pi-hole
+- **DNS DNAT rules** in PostUp hooks: redirect all wg0 port 53 traffic to `DNSMASQ_IP:5353`
+- **dnsmasq.conf**: defines local answer overrides (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.60`)
 
 When a VPN client queries DNS:
 1. DNS request hits port 53 on wg0
-2. iptables REDIRECT rule sends it to localhost:5353 (dnsmasq)
-3. dnsmasq checks its rewrite rules
-4. If match found, responds with translated address; otherwise forwards to Pi-hole
-5. VPN client receives answer and can route to `10.200.0.60`
+2. iptables DNAT sends it to `DNSMASQ_IP:5353` (dnsmasq)
+3. dnsmasq checks its local overrides
+4. If a match is found, it answers with the translated address
+5. Otherwise dnsmasq forwards upstream to Pi-hole
+6. VPN client receives the answer and routes accordingly
 
-Configure DNS rewrites in [`dnsmasq.conf`](./dnsmasq.conf). A single wildcard
-rule covers the whole domain (and all its subdomains), so any NPM proxy host
-under it — current or future — is translated automatically:
+Configure local DNS overrides in [`dnsmasq.conf`](./dnsmasq.conf). A single
+wildcard rule covers the whole domain (and all its subdomains), so any local
+homelab host under it — current or future — is translated automatically:
 
 ```
 address=/pimlicoa.duckdns.org/10.200.0.60
@@ -222,7 +225,7 @@ dnsmasq always matches the most specific domain rule, regardless of line
 order, so an explicit subdomain rule overrides the wildcard for that one
 subdomain while everything else keeps using the default.
 
-See [HOOKS_SETUP.md](./HOOKS_SETUP.md) for complete hook configuration including DNS interception.
+See [HOOKS_SETUP.md](./HOOKS_SETUP.md) for complete hook configuration including DNS forwarding.
 
 ## WireGuard access to other homelab services
 

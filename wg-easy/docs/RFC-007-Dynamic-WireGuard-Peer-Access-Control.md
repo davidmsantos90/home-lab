@@ -430,6 +430,15 @@ Infrastructure traffic includes services required for the VPN to operate
 correctly (starting with VPN DNS/Pi-hole integration), and MUST NOT be blocked
 by peer-to-peer or peer-to-LAN deny policies.
 
+For this deployment, WireGuard peers use:
+
+```text
+DNS = 10.8.0.1
+```
+
+where `10.8.0.1` is the wg0 gateway endpoint. Pi-hole remains the actual DNS
+resolver behind that endpoint.
+
 The forwarding path MUST therefore evaluate a dedicated infrastructure chain
 before `WG_ACCESS_CONTROL`:
 
@@ -450,6 +459,13 @@ For the current deployment, at minimum:
 
 These rules are implementation details and must not be exposed through
 `policies.json`.
+
+DNS forwarding in NAT MUST match on interface/port only (wg0 + destination
+port 53), not on DNS payload contents. The prior string-inspection approach
+that only matched `pimlicoa.duckdns.org` is removed.
+
+`10.200.0.0/24` remains reserved for LAN anti-conflict NETMAP translation and
+is not the peer DNS endpoint.
 
 ### 11.1 Stateful peer policy chain
 
@@ -955,39 +971,50 @@ The implementation is considered correct when the following cases hold:
 ### DNS infrastructure tests
 
 1. From a WireGuard peer:
-   `dig @10.200.0.60 nginx.pimlicoa.duckdns.org`
-   returns `NOERROR` with `A = 192.168.1.60`.
+   `dig @10.8.0.1 google.com`
+   returns `NOERROR` with a valid public IP answer.
 2. From a WireGuard peer:
-   `dig @10.200.0.60 nginx.pimlicoa.duckdns.org +tcp`
-   also succeeds.
+   `dig @10.8.0.1 nginx.pimlicoa.duckdns.org`
+   returns `10.200.0.60`.
+3. From a WireGuard peer:
+   `dig @10.8.0.1 google.com +tcp`
+   returns `NOERROR` with a valid public IP answer.
+4. From a WireGuard peer:
+   `dig @10.8.0.1 nginx.pimlicoa.duckdns.org +tcp`
+   returns `10.200.0.60`.
+5. With peer DNS configured as `10.8.0.1`, `ping google.com` resolves and
+   succeeds.
+6. `curl -4 -I --max-time 10 https://www.google.com` succeeds.
 
 ### Peer isolation and stateful behavior
 
-3. Mac → Phone ICMP is allowed when policy allows it.
-4. Phone → Mac ICMP is denied when policy denies it.
-5. Mac → Phone TCP/8022 connection succeeds when allowed.
-6. Phone → Mac TCP/8022 response traffic succeeds when it belongs to the
+7. Mac → Phone ICMP is allowed when policy allows it.
+8. Phone → Mac ICMP is denied when policy denies it.
+9. Mac → Phone TCP/8022 connection succeeds when allowed.
+10. Phone → Mac TCP/8022 response traffic succeeds when it belongs to the
    already established Mac-initiated connection.
-7. Phone → Mac TCP/8022 as a newly initiated connection is denied.
-8. Phone → Mac SSH/22 is denied when explicitly denied.
-9. Existing established connections continue working even when a broader
+11. Phone → Mac TCP/8022 as a newly initiated connection is denied.
+12. Phone → Mac SSH/22 is denied when explicitly denied.
+13. Existing established connections continue working even when a broader
    new-connection deny rule exists.
-10. Rule counters show that `ESTABLISHED,RELATED` traffic is accepted by the
+14. Rule counters show that `ESTABLISHED,RELATED` traffic is accepted by the
     stateful rule rather than hitting the generic deny rule.
 
 ### Infrastructure separation tests
 
-11. With `phone -> mac-work` denied, `phone -> VPN DNS` still works.
-12. Peer-to-Raspberry rules still behave by policy priority (for example a
+15. With `phone -> mac-work` denied, `phone -> VPN DNS` still works.
+16. Peer-to-Raspberry rules still behave by policy priority (for example a
     broad allow can be overridden by a more specific deny such as `:22`).
+17. `ping -c 4 1.1.1.1` and `curl -4 -I --max-time 10 https://1.1.1.1`
+    continue to work unchanged.
 
 ### NPM path tests
 
-13. `curl -vk https://10.200.0.60` may fail TLS/SNI routing and is not a DNS
+18. `curl -vk https://10.200.0.60` may fail TLS/SNI routing and is not a DNS
     failure by itself.
-14. `curl -vk --resolve immich.pimlicoa.duckdns.org:443:10.200.0.60 https://immich.pimlicoa.duckdns.org/`
-    succeeds with TCP connect, TLS handshake, valid certificate, and expected
-    NPM backend routing.
+19. `curl -vk https://nginx.pimlicoa.duckdns.org` succeeds with DNS resolution
+    to `10.200.0.60`, TCP connect, TLS handshake, certificate match, and
+    expected NPM routing (no `--resolve` required when DNS path is correct).
 
 These checks validate the firewall implementation; they do not require changing
 the declarative `policies.json` model.

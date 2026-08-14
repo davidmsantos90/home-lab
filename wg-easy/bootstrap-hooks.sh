@@ -22,18 +22,9 @@ fi
 
 HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
 WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
-# RFC-006: points directly at Pi-hole's translated address, not the wg0
-# gateway. This used to have to be the gateway (see RFC-003's "superseded
-# default" note) so every client query would hit the DNS DNAT rule before
-# NETMAP could translate it away — but that rule intercepted *all* DNS
-# traffic indiscriminately, which is also what erased every client's real
-# identity in Pi-hole's Query Log (dnsmasq always re-originates queries
-# under its own IP). Now that the DNS DNAT rule below matches on the
-# `pimlicoa.duckdns.org` domain itself (not on destination address), queries
-# aimed straight at Pi-hole's translated IP are still caught for that one
-# domain, while everything else falls through untouched to the generic
-# NETMAP rule, preserving the client's real tunnel IP in Pi-hole's log.
-WG_VPN_DNS="${WG_VPN_DNS:-10.200.0.60,1.1.1.1}"
+# RFC-007: peers should use the WireGuard gateway as DNS endpoint. All DNS
+# queries sent to wg0:53 are infrastructure-forwarded to Pi-hole internally.
+WG_VPN_DNS="${WG_VPN_DNS:-10.8.0.1}"
 WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}"
 # WireGuard-recommended keepalive so client-side NAT/router mappings don't
 # expire during idle periods (prevents needing to manually reconnect after
@@ -44,9 +35,7 @@ WG_VPN_PERSISTENT_KEEPALIVE="${WG_VPN_PERSISTENT_KEEPALIVE:-25}"
 # service's ipv4_address in compose.yaml).
 WG_EASY_ADMIN_HOMELAB_IP="${WG_EASY_ADMIN_HOMELAB_IP:-192.168.100.9}"
 WG_EASY_ADMIN_TRANSLATED_IP="${WG_EASY_ADMIN_TRANSLATED_IP:-10.200.0.9}"
-# RFC-006: the domain whose DNS answers need rewriting for overlapping-subnet
-# clients (see dnsmasq.conf) — also used below to scope DNS interception to
-# only this domain's queries, instead of intercepting all VPN client DNS.
+# Domain rewritten by dnsmasq for overlapping-subnet clients.
 WG_EASY_HOST="${WG_EASY_HOST:-pimlicoa.duckdns.org}"
 COOKIES_FILE="/tmp/wg-easy-cookies.txt"
 
@@ -98,49 +87,8 @@ fi
 DNSMASQ_IP="${DNSMASQ_IP:-172.28.0.2}"
 echo "Using dnsmasq IP: $DNSMASQ_IP"
 
-# RFC-006: encode WG_EASY_HOST as its DNS wire-format byte sequence, so the
-# PostUp DNS DNAT rule can match on the query *content* (an L7 string match)
-# instead of blindly redirecting every DNS packet from wg0 to dnsmasq. DNS
-# names are wire-encoded as length-prefixed labels ending in a zero byte,
-# e.g. "pimlicoa.duckdns.org" -> \x08pimlicoa\x07duckdns\x03org\x00 — any
-# subdomain (nginx.pimlicoa.duckdns.org, etc.) shares this exact byte suffix,
-# so a single substring match on it catches the whole domain and everything
-# under it, wherever it appears in the packet.
-domain_to_wire_hex() {
-  domain="$1"
-  hex=""
-  OLD_IFS="$IFS"
-  IFS='.'
-  for label in $domain; do
-    len="$(printf '%s' "$label" | wc -c | tr -d ' ')"
-    hex="${hex}$(printf '%02x' "$len")"
-    hex="${hex}$(printf '%s' "$label" | od -An -tx1 | tr -d ' \n')"
-  done
-  IFS="$OLD_IFS"
-  printf '%s00' "$hex"
-}
-DNS_MATCH_HEX="$(domain_to_wire_hex "$WG_EASY_HOST")"
-echo "DNS interception scoped to domain: $WG_EASY_HOST (hex: $DNS_MATCH_HEX)"
-
-# NOTE: DNS interception rules MUST come first in PREROUTING. Once a packet
-# matches a NAT rule (DNAT/NETMAP/REDIRECT), iptables stops evaluating further
-# rules in that chain for that packet. Since the translated subnet
-# (10.200.0.0/24) includes both the wg0 gateway (10.200.0.1) and Pi-hole's
-# translated address (10.200.0.60, WG_VPN_DNS's default), a NETMAP rule
-# placed before the DNS rule would catch DNS traffic first and prevent it
-# from ever reaching dnsmasq.
-#
-# RFC-006: this rule only matches DNS packets whose payload contains
-# WG_EASY_HOST's wire-format bytes (via `-m string`), so only queries for
-# that domain (needed for the RFC-001 overlapping-subnet rewrite) get
-# redirected to dnsmasq. Every other VPN client DNS query — the vast
-# majority — isn't matched here at all, and falls through untouched to the
-# generic NETMAP rule below (since WG_VPN_DNS now points directly at Pi-hole's
-# translated address), reaching Pi-hole NAT-transparently with the client's
-# real tunnel IP intact. `--icase` guards against DNS 0x20-encoding (some
-# resolvers randomize query name case as an anti-spoofing measure), which
-# would otherwise occasionally cause a same-domain query to slip through
-# unmatched. See wg-easy/docs/RFC-006-vpn-client-dns-identity.md.
+# RFC-007: ALL DNS queries from wg0 to destination port 53 are DNATed to
+# Pi-hole's internal listener at DNSMASQ_IP:5353. No DNS payload inspection.
 #
 # Likewise, the wg-easy-admin host exception MUST come before the broad
 # NETMAP catch-all below, since its destination IP (10.200.0.9) falls inside
@@ -175,9 +123,8 @@ POST_UP="$(join_hook_lines <<EOF
 DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1)
 iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "\$DEFAULT_IF" -j MASQUERADE
 modprobe xt_NETMAP || true
-modprobe xt_string || true
-iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -m string --algo bm --hex-string "|${DNS_MATCH_HEX}|" --icase -j DNAT --to-destination ${DNSMASQ_IP}:5353
-iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex-string "|${DNS_MATCH_HEX}|" --icase -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
 iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
 iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
 iptables -t filter -N WG_INFRASTRUCTURE 2>/dev/null || true
@@ -200,8 +147,8 @@ EOF
 POST_DOWN="$(join_hook_lines <<EOF
 DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1)
 iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o "\$DEFAULT_IF" -j MASQUERADE
-iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -m string --algo bm --hex-string "|${DNS_MATCH_HEX}|" --icase -j DNAT --to-destination ${DNSMASQ_IP}:5353
-iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex-string "|${DNS_MATCH_HEX}|" --icase -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
+iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
 iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
 iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
 iptables -t filter -D FORWARD -j WG_INFRASTRUCTURE 2>/dev/null || true
