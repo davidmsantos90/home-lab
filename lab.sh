@@ -45,9 +45,9 @@ ensure_networks() {
 # healthy (depends_on: condition: service_healthy). `docker compose up -d`
 # can return before that dependency actually reports healthy, leaving the
 # one-shot container stuck in "Created" and never actually executed —
-# silently skipping its setup with no error. Force-recreate any such
-# container after bringing the service up so it's guaranteed to actually
-# run, rather than relying on depends_on timing.
+# silently skipping its setup with no error. Wait for the dependency to
+# report healthy before creating the hook so the first restart always
+# converges deterministically.
 #
 # Additionally, for wg-easy specifically, the hook configures PostUp/PostDown
 # iptables rules via wg-easy's HTTP API — but updating that config via the
@@ -64,16 +64,56 @@ ensure_networks() {
 # no-op — we wait for the hook to actually finish (`docker compose wait`)
 # and only pay for the disruptive target recreate when it reports a real
 # change, instead of unconditionally cycling on every single start/restart.
+wait_for_service_healthy() {
+    local svc=$1
+    local timeout_seconds=${2:-120}
+    local elapsed=0
+    local container_id status health
+
+    info "$svc" "Waiting for $svc to become healthy..."
+
+    while [ "$elapsed" -lt "$timeout_seconds" ]; do
+        container_id=$(cd "$SCRIPT_DIR/$svc" && docker compose ps -q "$svc" 2>/dev/null || true)
+        if [ -n "$container_id" ]; then
+            status=$(docker inspect --format '{{.State.Status}}' "$container_id" 2>/dev/null || true)
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_id" 2>/dev/null || true)
+
+            if [ "$status" = "running" ] && { [ "$health" = "healthy" ] || [ "$health" = "none" ]; }; then
+                return 0
+            fi
+
+            if [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
+                error "$svc" "Container stopped while waiting for readiness (status=$status, health=$health)"
+                return 1
+            fi
+        fi
+
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    error "$svc" "Timed out waiting for container readiness"
+    return 1
+}
+
 run_bootstrap_hooks() {
     local svc=$1
     local hook_services
     hook_services=$(cd "$SCRIPT_DIR/$svc" && docker compose config --services 2>/dev/null | grep -- '-hooks-bootstrap$' || true)
     for hook in $hook_services; do
+        local target="${hook%-hooks-bootstrap}"
+        wait_for_service_healthy "$target"
+
         info "$svc" "Running one-shot hook: $hook..."
         (cd "$SCRIPT_DIR/$svc" && docker compose up -d --force-recreate "$hook")
-        (cd "$SCRIPT_DIR/$svc" && docker compose wait "$hook") || true
+        if ! (cd "$SCRIPT_DIR/$svc" && docker compose wait "$hook"); then
+            local hook_log
+            hook_log=$(cd "$SCRIPT_DIR/$svc" && docker compose logs --no-log-prefix "$hook" 2>/dev/null || true)
+            error "$svc" "Hook $hook failed"
+            [ -n "$hook_log" ] && printf '%s\n' "$hook_log" >&2
+            return 1
+        fi
 
-        local target="${hook%-hooks-bootstrap}"
         local hook_log
         hook_log=$(cd "$SCRIPT_DIR/$svc" && docker compose logs --no-log-prefix "$hook" 2>/dev/null)
         if echo "$hook_log" | grep -q '^BOOTSTRAP_RESULT=changed$'; then
