@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Sync a declarative WireGuard access policy into wg-easy's live firewall.
 
-This is the first RFC-007 implementation slice:
-- manual trigger only
-- dependency-free policy format (JSON)
-- peer identity resolved from the wg-easy API
-- live iptables changes inside the running wg-easy container
+The synchronizer is manually triggered, resolves peer identity from the wg-easy
+API, applies live firewall changes inside the running container, and uses
+ipset-backed selector sets when the policy references multiple peers or
+addresses.
 
 By default the script performs a dry run. Pass --apply to mutate rules.
 """
@@ -13,6 +12,7 @@ By default the script performs a dry run. Pass --apply to mutate rules.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import ipaddress
 import json
 import os
@@ -26,6 +26,7 @@ from http.cookiejar import CookieJar
 
 CHAIN_NAME = "WG_ACCESS_CONTROL"
 INFRA_CHAIN_NAME = "WG_INFRASTRUCTURE"
+IPSET_PREFIX = "wgac"
 NEW_CONN_MATCH = ["-m", "conntrack", "--ctstate", "NEW"]
 ESTABLISHED_CONN_ACCEPT = [
     "-t",
@@ -202,6 +203,69 @@ def expand_selector(selector, peer_map: dict[str, str], groups: dict[str, list[s
     raise SystemExit(f"Unknown peer or address selector: {selector}")
 
 
+def dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
+
+
+def selector_values(selector, peer_map: dict[str, str], groups: dict[str, list[str]]) -> list[str]:
+    values = [value for value in expand_selector(selector, peer_map, groups) if value is not None]
+    return dedupe_preserve_order(values)
+
+
+def stable_set_name(role: str, values: list[str]) -> str:
+    payload = "\0".join(sorted(values))
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    return f"{IPSET_PREFIX}_{role}_{digest}"
+
+
+def ipset_available() -> bool:
+    result = subprocess.run(
+        ["docker", "exec", "wg-easy", "sh", "-lc", "command -v ipset >/dev/null 2>&1"],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    return result.returncode == 0
+
+
+def run_ipset(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["docker", "exec", "wg-easy", "ipset", *args],
+        check=check,
+        text=True,
+        capture_output=True,
+    )
+
+
+def cleanup_generated_ipsets() -> None:
+    result = run_ipset(["list", "-name"], check=False)
+    if result.returncode != 0:
+        return
+
+    for name in result.stdout.splitlines():
+        if not name.startswith(f"{IPSET_PREFIX}_"):
+            continue
+        run_ipset(["destroy", name], check=False)
+
+
+def ensure_selector_ipset(role: str, values: list[str], registry: dict[str, tuple[str, ...]]) -> list[str]:
+    if not values:
+        return []
+    if len(values) == 1:
+        return ["-s", values[0]] if role == "src" else ["-d", values[0]]
+
+    set_name = stable_set_name(role, values)
+    registry.setdefault(set_name, tuple(sorted(values)))
+    return ["-m", "set", "--match-set", set_name, role]
+
+
 def protocol_variants(protocol: str | None, port: int | None) -> list[str | None]:
     if protocol is None or protocol.lower() in {"any", "*"}:
         if port is None:
@@ -262,6 +326,60 @@ def rule_to_iptables(rule: dict, peer_map: dict[str, str], groups: dict[str, lis
     return commands
 
 
+def rule_to_ipset_iptables(
+    rule: dict,
+    peer_map: dict[str, str],
+    groups: dict[str, list[str]],
+    set_registry: dict[str, tuple[str, ...]],
+) -> list[list[str]]:
+    action = str(rule.get("action", "")).lower()
+    if action not in {"allow", "deny", "drop", "reject"}:
+        raise SystemExit(f"Unsupported action: {rule.get('action')!r}")
+
+    if "source" in rule and "source_group" in rule:
+        raise SystemExit("Use either source or source_group, not both")
+    if "destination" in rule and "destination_group" in rule:
+        raise SystemExit("Use either destination or destination_group, not both")
+
+    sources = selector_values(rule.get("source") or rule.get("source_group"), peer_map, groups)
+    destinations = selector_values(rule.get("destination") or rule.get("destination_group"), peer_map, groups)
+    port = rule.get("port")
+    if port is not None and port != "any":
+        port = int(port)
+    else:
+        port = None
+
+    source_match = ensure_selector_ipset("src", sources, set_registry)
+    destination_match = ensure_selector_ipset("dst", destinations, set_registry)
+
+    commands: list[list[str]] = []
+    for protocol in protocol_variants(rule.get("protocol"), port):
+        command = [
+            "-t",
+            "filter",
+            "-A",
+            CHAIN_NAME,
+        ]
+        command += source_match
+        command += destination_match
+        if protocol is not None:
+            command += ["-p", protocol]
+        if port is not None:
+            command += ["--dport", str(port)]
+        command += NEW_CONN_MATCH
+        if action == "allow":
+            command += ["-j", "ACCEPT"]
+        elif action in {"deny", "drop"}:
+            command += ["-j", "DROP"]
+        else:
+            command += ["-j", "REJECT"]
+            if protocol == "tcp":
+                command += ["--reject-with", "tcp-reset"]
+        commands.append(command)
+
+    return commands
+
+
 def run_iptables(args: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["docker", "exec", "wg-easy", "iptables", *args],
@@ -310,7 +428,7 @@ def ensure_infrastructure_chain(dnsmasq_ip: str) -> None:
     run_iptables(["-t", "filter", "-A", INFRA_CHAIN_NAME, "-j", "RETURN"])
 
 
-def apply_rules(commands: list[list[str]]) -> None:
+def apply_rules(commands: list[list[str]], backend: str, set_registry: dict[str, tuple[str, ...]]) -> None:
     dnsmasq_ip = setting("DNSMASQ_IP", "172.28.0.2")
     if dnsmasq_ip is None:
         raise SystemExit("DNSMASQ_IP must not be empty")
@@ -318,6 +436,13 @@ def apply_rules(commands: list[list[str]]) -> None:
     ensure_infrastructure_chain(dnsmasq_ip)
     ensure_chain(CHAIN_NAME)
     run_iptables(ESTABLISHED_CONN_ACCEPT)
+    if backend == "ipset":
+        cleanup_generated_ipsets()
+        for set_name, members in set_registry.items():
+            run_ipset(["create", set_name, "hash:ip", "family", "inet", "-exist"])
+            run_ipset(["flush", set_name])
+            for member in members:
+                run_ipset(["add", set_name, member, "-exist"])
     for command in commands:
         run_iptables(command)
     run_iptables(["-t", "filter", "-A", CHAIN_NAME, "-j", "DROP"])
@@ -333,6 +458,22 @@ def summarize(rules: list[dict], peer_map: dict[str, str]) -> None:
     print(f"Loaded {len(rules)} policy rules")
     for rule in rules:
         print(f"  {rule}")
+
+
+def compile_rules(
+    rules: list[dict],
+    peer_map: dict[str, str],
+    groups: dict[str, list[str]],
+    backend: str,
+) -> tuple[list[list[str]], dict[str, tuple[str, ...]]]:
+    commands: list[list[str]] = []
+    set_registry: dict[str, tuple[str, ...]] = {}
+    for rule in rules:
+        if backend == "ipset":
+            commands.extend(rule_to_ipset_iptables(rule, peer_map, groups, set_registry))
+        else:
+            commands.extend(rule_to_iptables(rule, peer_map, groups))
+    return commands, set_registry
 
 
 def main() -> int:
@@ -362,11 +503,11 @@ def main() -> int:
     if not isinstance(groups, dict) or not isinstance(rules, list):
         raise SystemExit("Policy file must contain top-level 'groups' object and 'rules' array")
 
+    backend = "ipset" if ipset_available() else "iptables"
+    print(f"Selected firewall backend: {backend}")
     summarize(rules, peer_map)
 
-    rule_commands: list[list[str]] = []
-    for rule in rules:
-        rule_commands.extend(rule_to_iptables(rule, peer_map, groups))
+    rule_commands, set_registry = compile_rules(rules, peer_map, groups, backend)
 
     if not args.apply:
         print("")
@@ -375,7 +516,7 @@ def main() -> int:
 
     print("")
     print("Applying access-control rules...")
-    apply_rules(rule_commands)
+    apply_rules(rule_commands, backend, set_registry)
     print("Done.")
     return 0
 

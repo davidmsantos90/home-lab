@@ -22,7 +22,8 @@ The implemented architecture separates:
 - peer-to-peer access control;
 - peer-to-LAN access control;
 - NAT / NETMAP / MASQUERADE routing;
-- policy synchronization / compilation.
+- policy synchronization / compilation;
+- dynamic selector-set compilation for repeated peer/address matches.
 
 The next planned evolution is a logical policy model with peer, host, and
 service inventories, so administrators define intent in names rather than raw IP
@@ -117,6 +118,7 @@ Implemented:
 - explicit REJECT
 - DROP fallback
 - dynamic application without restarting `wg-easy`
+- ipset-backed selector sets when a rule matches multiple peers or addresses
 
 Runtime model:
 
@@ -179,6 +181,7 @@ The repository currently implements:
 - `WG_ACCESS_CONTROL`
 - DNS forwarding to Pi-hole
 - peer-name resolution
+- dynamic selector-set compilation
 
 It does **not** yet implement:
 
@@ -303,9 +306,11 @@ Direct protocol/port rules must remain supported.
 
 ### 4.3 Policy compiler improvements
 
-Future compiler responsibilities:
+The current manual synchronizer already handles peer-name resolution, rule
+compilation, and deterministic runtime application for the implemented policy
+model. The remaining compiler work is:
 
-1. Resolve peer names to WireGuard IPs.
+1. Resolve peer names to WireGuard IPs automatically from the wg-easy API.
 2. Resolve host/resource names to LAN IPs.
 3. Resolve optional service names to protocol/port definitions.
 4. Validate references.
@@ -413,6 +418,7 @@ The abstraction must preserve:
 | NETMAP anti-conflict translation | policy import/export tooling |
 | MASQUERADE | — |
 | manual peer name -> IP synchronization | — |
+| selector-set compilation with ipset | — |
 
 ---
 
