@@ -45,6 +45,9 @@ In `source`, `source_group`, `destination`, and `destination_group` fields, you 
   - `reject` actively rejects packets (TCP uses reset for faster failures)
 All access-control rules apply to NEW connections only; established and related
 traffic is accepted by the firewall state rule before policy evaluation.
+VPN infrastructure traffic (currently wg0 DNS forwarded to Pi-hole at
+`DNSMASQ_IP:5353`) is handled outside `policies.json` in a dedicated
+infrastructure chain, so peer policies do not need Docker-network destinations.
 
 ### Examples
 

@@ -75,6 +75,8 @@ The system MUST:
 - support group-based policies as a convenience;
 - support fully granular per-peer policies;
 - remain compatible with the existing NAT/routing architecture.
+- separate VPN infrastructure traffic from peer/LAN access-control policy
+  evaluation.
 
 ---
 
@@ -91,6 +93,7 @@ It does not define:
 - the existing network-conflict `NETMAP` mechanism;
 - replacement of the Vodafone router;
 - replacement of the existing WireGuard configuration.
+- exposing Docker-internal implementation details in user policy files.
 
 Those remain separate concerns.
 
@@ -275,6 +278,16 @@ Policy semantics are directional for **new connections**: a `deny` rule means
 “prevent new connections initiated by the source toward the destination.”
 It does **not** mean “drop every packet in both directions between those peers.”
 
+A rule such as:
+
+```json
+{"source":"dams-s23","destination":"mac-work","action":"deny"}
+```
+
+must block new connections from `dams-s23` to `mac-work`, while still allowing
+that same peer to reach VPN infrastructure services (for example DNS via
+`WG_INFRASTRUCTURE`).
+
 ---
 
 ## 9. Groups
@@ -409,6 +422,37 @@ rule because return traffic is covered by the stateful firewall rule.
 
 The firewall configuration MUST be mutable without restarting `wg-easy`.
 
+### 11.0 VPN Infrastructure vs Peer Policy
+
+VPN infrastructure traffic MUST be evaluated separately from peer ACL rules.
+
+Infrastructure traffic includes services required for the VPN to operate
+correctly (starting with VPN DNS/Pi-hole integration), and MUST NOT be blocked
+by peer-to-peer or peer-to-LAN deny policies.
+
+The forwarding path MUST therefore evaluate a dedicated infrastructure chain
+before `WG_ACCESS_CONTROL`:
+
+```text
+FORWARD
+  -> WG_INFRASTRUCTURE
+  -> WG_ACCESS_CONTROL
+```
+
+`WG_INFRASTRUCTURE` should contain explicit allow rules for infrastructure
+services, then `RETURN` for unrelated packets.
+
+For the current deployment, at minimum:
+
+- `-i wg0 -p udp -d 172.28.0.2 --dport 5353 -j ACCEPT`
+- `-i wg0 -p tcp -d 172.28.0.2 --dport 5353 -j ACCEPT`
+- `-j RETURN`
+
+These rules are implementation details and must not be exposed through
+`policies.json`.
+
+### 11.1 Stateful peer policy chain
+
 The generated `WG_ACCESS_CONTROL` chain MUST conceptually follow this order:
 
 ```text
@@ -440,7 +484,7 @@ Within the NEW-connection policy section, more specific rules MUST be evaluated
 before broader rules. For example, a TCP/8022 allow for a peer pair must be
 placed before a generic deny covering the same source and destination.
 
-### 11.1 iptables + ipsets
+### 11.2 iptables + ipsets
 
 Repeated policy targets can be represented using `ipset`.
 
@@ -456,6 +500,9 @@ immich_allowed:
 A permanent firewall rule could then reference the set:
 
 ```bash
+iptables -A WG_INFRASTRUCTURE -i wg0 -p udp -d 172.28.0.2 --dport 5353 -j ACCEPT
+iptables -A WG_INFRASTRUCTURE -i wg0 -p tcp -d 172.28.0.2 --dport 5353 -j ACCEPT
+iptables -A WG_INFRASTRUCTURE -j RETURN
 iptables -A WG_ACCESS_CONTROL -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -A WG_ACCESS_CONTROL     -s 10.8.0.0/24     -d 10.200.0.5     -p tcp     --dport 443     -m set     --match-set immich_allowed src     -j ACCEPT
 ```
@@ -474,7 +521,7 @@ ipset del immich_allowed 10.8.0.5
 
 No WireGuard restart is required.
 
-### 11.2 nftables
+### 11.3 nftables
 
 `nftables` SHOULD be considered for the long-term implementation.
 
@@ -599,6 +646,11 @@ These can configure:
 - static routing;
 - baseline firewall requirements.
 
+In particular, VPN infrastructure forwarding rules (such as DNS allow rules in
+`WG_INFRASTRUCTURE`) SHOULD be installed by the same persistent hook mechanism
+used for NAT/NETMAP so they are recreated automatically after interface/container
+restart.
+
 However, peer-specific access rules MUST NOT be hardcoded into these hooks.
 
 This avoids the need to restart `wg-easy` every time a peer is added or its permissions change.
@@ -716,6 +768,10 @@ The manager SHOULD:
 
 The `wg-easy` API credentials MUST NOT be exposed to the browser.
 
+Infrastructure bypass MUST remain narrow: it only permits explicitly-defined VPN
+infrastructure flows. It MUST NOT become a broad allow-path that bypasses
+peer/LAN policy for arbitrary destinations.
+
 ---
 
 ## 20. Failure Behaviour
@@ -770,6 +826,8 @@ This separation allows each component to evolve independently.
 - First implementation slice: a manual sync tool that reads policy JSON,
   resolves peer identities from the `wg-easy` API, and applies live iptables
   rules without restarting `wg-easy`.
+- Add a dedicated `WG_INFRASTRUCTURE` chain before `WG_ACCESS_CONTROL` so VPN
+  DNS infrastructure traffic is explicitly allowed independent of peer ACLs.
 
 ### Phase 2 — Dynamic firewall sets
 
@@ -871,6 +929,12 @@ The final architecture should look approximately like:
 
 Adopt a **dynamic firewall policy layer independent of `wg-easy` restarts**, with support for both **granular per-peer rules and group-based rules**.
 
+Retain a default-deny model while separating VPN infrastructure handling:
+
+- explicitly allow required infrastructure traffic in `WG_INFRASTRUCTURE`;
+- evaluate peer/LAN ACLs in `WG_ACCESS_CONTROL`;
+- deny unmatched traffic by default.
+
 The initial implementation may use `iptables + ipset` to minimise changes to the existing environment. `nftables` should remain the preferred candidate for a future, more sophisticated implementation.
 
 The existing hooks remain responsible for static routing/NAT infrastructure, while peer-specific access policy is managed dynamically at runtime.
@@ -878,6 +942,7 @@ The existing hooks remain responsible for static routing/NAT infrastructure, whi
 ### Initial implementation slice
 
 - `wg-easy/access-control-sync.py` — manual sync tool
+- `wg-easy/bootstrap-hooks.sh` — persistent NAT/hooks infrastructure setup
 - `wg-easy/access-control/policies.json.example` — starter policy file
 - `lab.sh access-sync` — convenience entry point
 
@@ -887,17 +952,42 @@ The existing hooks remain responsible for static routing/NAT infrastructure, whi
 
 The implementation is considered correct when the following cases hold:
 
-1. Mac → Phone ICMP is allowed when policy allows it.
-2. Phone → Mac ICMP is denied when policy denies it.
-3. Mac → Phone TCP/8022 connection succeeds when allowed.
-4. Phone → Mac TCP/8022 response traffic succeeds when it belongs to the
+### DNS infrastructure tests
+
+1. From a WireGuard peer:
+   `dig @10.200.0.60 nginx.pimlicoa.duckdns.org`
+   returns `NOERROR` with `A = 192.168.1.60`.
+2. From a WireGuard peer:
+   `dig @10.200.0.60 nginx.pimlicoa.duckdns.org +tcp`
+   also succeeds.
+
+### Peer isolation and stateful behavior
+
+3. Mac → Phone ICMP is allowed when policy allows it.
+4. Phone → Mac ICMP is denied when policy denies it.
+5. Mac → Phone TCP/8022 connection succeeds when allowed.
+6. Phone → Mac TCP/8022 response traffic succeeds when it belongs to the
    already established Mac-initiated connection.
-5. Phone → Mac TCP/8022 as a newly initiated connection is denied.
-6. Phone → Mac SSH/22 is denied when explicitly denied.
-7. Existing established connections continue working even when a broader
+7. Phone → Mac TCP/8022 as a newly initiated connection is denied.
+8. Phone → Mac SSH/22 is denied when explicitly denied.
+9. Existing established connections continue working even when a broader
    new-connection deny rule exists.
-8. Rule counters show that `ESTABLISHED,RELATED` traffic is accepted by the
-   stateful rule rather than hitting the generic deny rule.
+10. Rule counters show that `ESTABLISHED,RELATED` traffic is accepted by the
+    stateful rule rather than hitting the generic deny rule.
+
+### Infrastructure separation tests
+
+11. With `phone -> mac-work` denied, `phone -> VPN DNS` still works.
+12. Peer-to-Raspberry rules still behave by policy priority (for example a
+    broad allow can be overridden by a more specific deny such as `:22`).
+
+### NPM path tests
+
+13. `curl -vk https://10.200.0.60` may fail TLS/SNI routing and is not a DNS
+    failure by itself.
+14. `curl -vk --resolve immich.pimlicoa.duckdns.org:443:10.200.0.60 https://immich.pimlicoa.duckdns.org/`
+    succeeds with TCP connect, TLS handshake, valid certificate, and expected
+    NPM backend routing.
 
 These checks validate the firewall implementation; they do not require changing
 the declarative `policies.json` model.

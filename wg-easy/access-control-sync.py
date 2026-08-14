@@ -25,6 +25,7 @@ from http.cookiejar import CookieJar
 
 
 CHAIN_NAME = "WG_ACCESS_CONTROL"
+INFRA_CHAIN_NAME = "WG_INFRASTRUCTURE"
 NEW_CONN_MATCH = ["-m", "conntrack", "--ctstate", "NEW"]
 ESTABLISHED_CONN_ACCEPT = [
     "-t",
@@ -270,22 +271,25 @@ def run_iptables(args: list[str], check: bool = True) -> subprocess.CompletedPro
     )
 
 
-def chain_exists() -> bool:
-    result = run_iptables(["-t", "filter", "-S", CHAIN_NAME], check=False)
-    return result.returncode == 0
-
-
-def ensure_chain() -> None:
-    if not chain_exists():
-        result = run_iptables(["-t", "filter", "-N", CHAIN_NAME], check=False)
+def ensure_chain(chain_name: str) -> None:
+    result = run_iptables(["-t", "filter", "-S", chain_name], check=False)
+    if result.returncode != 0:
+        result = run_iptables(["-t", "filter", "-N", chain_name], check=False)
         if result.returncode != 0:
-            raise SystemExit(result.stderr.strip() or f"Failed to create chain {CHAIN_NAME}")
-    run_iptables(["-t", "filter", "-F", CHAIN_NAME])
+            raise SystemExit(result.stderr.strip() or f"Failed to create chain {chain_name}")
+    run_iptables(["-t", "filter", "-F", chain_name])
 
 
-def ensure_jump() -> None:
-    run_iptables(["-t", "filter", "-D", "FORWARD", "-j", CHAIN_NAME], check=False)
+def remove_forward_jump(chain_name: str) -> None:
+    while run_iptables(["-t", "filter", "-D", "FORWARD", "-j", chain_name], check=False).returncode == 0:
+        pass
+
+
+def ensure_forward_path() -> None:
+    remove_forward_jump(INFRA_CHAIN_NAME)
+    remove_forward_jump(CHAIN_NAME)
     run_iptables(["-t", "filter", "-I", "FORWARD", "1", "-j", CHAIN_NAME])
+    run_iptables(["-t", "filter", "-I", "FORWARD", "1", "-j", INFRA_CHAIN_NAME])
 
 
 def remove_forwards() -> None:
@@ -294,13 +298,30 @@ def remove_forwards() -> None:
             pass
 
 
+def ensure_infrastructure_chain(dnsmasq_ip: str) -> None:
+    try:
+        dns_ip = str(ipaddress.ip_address(dnsmasq_ip))
+    except ValueError as exc:
+        raise SystemExit(f"Invalid DNSMASQ_IP value: {dnsmasq_ip!r}") from exc
+
+    ensure_chain(INFRA_CHAIN_NAME)
+    run_iptables(["-t", "filter", "-A", INFRA_CHAIN_NAME, "-i", "wg0", "-p", "udp", "-d", f"{dns_ip}/32", "--dport", "5353", "-j", "ACCEPT"])
+    run_iptables(["-t", "filter", "-A", INFRA_CHAIN_NAME, "-i", "wg0", "-p", "tcp", "-d", f"{dns_ip}/32", "--dport", "5353", "-j", "ACCEPT"])
+    run_iptables(["-t", "filter", "-A", INFRA_CHAIN_NAME, "-j", "RETURN"])
+
+
 def apply_rules(commands: list[list[str]]) -> None:
-    ensure_chain()
+    dnsmasq_ip = setting("DNSMASQ_IP", "172.28.0.2")
+    if dnsmasq_ip is None:
+        raise SystemExit("DNSMASQ_IP must not be empty")
+
+    ensure_infrastructure_chain(dnsmasq_ip)
+    ensure_chain(CHAIN_NAME)
     run_iptables(ESTABLISHED_CONN_ACCEPT)
     for command in commands:
         run_iptables(command)
     run_iptables(["-t", "filter", "-A", CHAIN_NAME, "-j", "DROP"])
-    ensure_jump()
+    ensure_forward_path()
     remove_forwards()
 
 

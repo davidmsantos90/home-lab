@@ -180,6 +180,13 @@ iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -m string --algo bm --hex
 iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex-string "|${DNS_MATCH_HEX}|" --icase -j DNAT --to-destination ${DNSMASQ_IP}:5353
 iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
 iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
+iptables -t filter -N WG_INFRASTRUCTURE 2>/dev/null || true
+iptables -t filter -F WG_INFRASTRUCTURE
+iptables -t filter -A WG_INFRASTRUCTURE -i wg0 -p udp -d ${DNSMASQ_IP}/32 --dport 5353 -j ACCEPT
+iptables -t filter -A WG_INFRASTRUCTURE -i wg0 -p tcp -d ${DNSMASQ_IP}/32 --dport 5353 -j ACCEPT
+iptables -t filter -A WG_INFRASTRUCTURE -j RETURN
+iptables -t filter -D FORWARD -j WG_INFRASTRUCTURE 2>/dev/null || true
+iptables -t filter -I FORWARD 1 -j WG_INFRASTRUCTURE
 iptables -t nat -A PREROUTING -d ${WG_EASY_ADMIN_TRANSLATED_IP}/32 -j DNAT --to ${WG_EASY_ADMIN_HOMELAB_IP}
 iptables -t nat -A POSTROUTING -s ${WG_EASY_ADMIN_HOMELAB_IP}/32 -j SNAT --to ${WG_EASY_ADMIN_TRANSLATED_IP}
 iptables -t nat -A PREROUTING -d ${WG_TRANSLATED_LAN_SUBNET} -j NETMAP --to ${HOME_LAN_SUBNET}
@@ -197,6 +204,9 @@ iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -m string --algo bm --hex
 iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex-string "|${DNS_MATCH_HEX}|" --icase -j DNAT --to-destination ${DNSMASQ_IP}:5353
 iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
 iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
+iptables -t filter -D FORWARD -j WG_INFRASTRUCTURE 2>/dev/null || true
+iptables -t filter -F WG_INFRASTRUCTURE 2>/dev/null || true
+iptables -t filter -X WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t nat -D PREROUTING -d ${WG_EASY_ADMIN_TRANSLATED_IP}/32 -j DNAT --to ${WG_EASY_ADMIN_HOMELAB_IP}
 iptables -t nat -D POSTROUTING -s ${WG_EASY_ADMIN_HOMELAB_IP}/32 -j SNAT --to ${WG_EASY_ADMIN_TRANSLATED_IP}
 iptables -t nat -D PREROUTING -d ${WG_TRANSLATED_LAN_SUBNET} -j NETMAP --to ${HOME_LAN_SUBNET}
