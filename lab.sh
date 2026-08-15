@@ -266,6 +266,7 @@ usage() {
     echo "             on its own (see Troubleshooting in README.md)"
     echo "  access-sync Sync wg-easy access-control rules (manual, no restart)"
     echo "             or serve a read-only access-control API with --serve"
+    echo "  access-ui   Start the wg-easy access-control React UI"
     echo ""
     echo -e "${BOLD}Services:${RESET} ${ALL_SERVICES[*]}"
     echo ""
@@ -277,6 +278,7 @@ usage() {
     echo "  $0 fix-netns nginx-proxy-manager  # fix a stale netns after a sidecar recreate"
     echo "  $0 access-sync                    # dry-run wg-easy access-control sync"
     echo "  $0 access-sync --serve            # start the read-only access-control API"
+    echo "  $0 access-ui                      # start the React access-control UI"
 }
 
 if [ $# -lt 1 ]; then
@@ -287,13 +289,18 @@ COMMAND=$1; shift
 
 # Validate command
 case "$COMMAND" in
-    start|stop|restart|update|status|fix-netns|access-sync) ;;
+    start|stop|restart|update|status|fix-netns|access-sync|access-ui) ;;
     help|--help|-h) usage; exit 0 ;;
     *) error "lab" "Unknown command: $COMMAND"; usage; exit 1 ;;
 esac
 
 if [ "$COMMAND" = "access-sync" ]; then
     (cd "$SCRIPT_DIR/wg-easy" && python3 ./access-control-sync.py "$@")
+    exit $?
+fi
+
+if [ "$COMMAND" = "access-ui" ]; then
+    (cd "$SCRIPT_DIR/wg-easy/access-control-ui" && npm run dev)
     exit $?
 fi
 

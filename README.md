@@ -157,6 +157,8 @@ RFC-007's future management UI is planned as a **React** app using
 top of the logical policy/compiler pipeline and not implement networking logic
 itself.
 
+The UI prototype currently lives in [wg-easy/access-control-ui/](/Users/davsantos/github/misc/home-lab/wg-easy/access-control-ui) and can be launched with `./lab.sh access-ui`.
+
 If you previously ran an older `wg-easy` compose with a different internal network label and get a Docker network label mismatch error, remove the stale network once and start again:
 
 ```bash
