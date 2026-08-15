@@ -9,6 +9,7 @@ WireGuard VPN management stack with automatic DuckDNS updates.
 - **DuckDNS**: Dynamic DNS for the WireGuard UDP endpoint
 - Admin UI is bound to `127.0.0.1:51821` on the host only (no public exposure), and is additionally reachable by authenticated VPN clients at a dedicated translated IP (see "Accessing admin UIs over the wg-easy VPN" in the root [README.md](/Users/davsantos/github/misc/home-lab/README.md))
 - RFC-007's future management UI is planned as a React app using [hv-uikit-react](https://github.com/pentaho/hv-uikit-react)
+- The access-control synchronizer can also serve a read-only API (`./lab.sh access-sync --serve`) with live peer discovery and policy preview data for future UI work
 
 ## Dependencies
 

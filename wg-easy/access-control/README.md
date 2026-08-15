@@ -18,6 +18,7 @@ This directory holds the first manual implementation slice for RFC-007.
 ```bash
 ./lab.sh access-sync              # dry run
 ./lab.sh access-sync --apply      # apply rules
+./lab.sh access-sync --serve      # read-only API for peer discovery / preview
 ```
 
 Use `--policies` and `--aliases` to point at different files, or omit `--apply`
@@ -25,6 +26,21 @@ for a dry run.
 If `policies.json` or `aliases.json` do not exist yet, the dry run falls back to
 their corresponding `.example` files so you can preview the mapping before
 creating your own files.
+
+## API Mode
+
+`--serve` starts a read-only HTTP API that exposes the live wg-easy peer
+inventory plus the normalized alias/policy snapshot used by the compiler.
+
+Default bind: `127.0.0.1:8787`
+
+Endpoints:
+
+- `/healthz`
+- `/api/state`
+- `/api/inventory` (alias: `/api/peers`)
+- `/api/aliases`
+- `/api/policies`
 
 ## Alias Format
 

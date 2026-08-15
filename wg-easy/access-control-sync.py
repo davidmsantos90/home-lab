@@ -17,6 +17,7 @@ import ipaddress
 import json
 import os
 import pathlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import subprocess
 import sys
 import urllib.error
@@ -27,6 +28,8 @@ from http.cookiejar import CookieJar
 CHAIN_NAME = "WG_ACCESS_CONTROL"
 INFRA_CHAIN_NAME = "WG_INFRASTRUCTURE"
 IPSET_PREFIX = "wgac"
+DEFAULT_API_HOST = "127.0.0.1"
+DEFAULT_API_PORT = 8787
 NEW_CONN_MATCH = ["-m", "conntrack", "--ctstate", "NEW"]
 ESTABLISHED_CONN_ACCEPT = [
     "-t",
@@ -82,6 +85,16 @@ def load_env_file(path: pathlib.Path) -> dict[str, str]:
 def setting(name: str, default: str | None = None) -> str | None:
     env_file = load_env_file(wg_easy_dir() / ".env")
     return os.environ.get(name) or env_file.get(name) or default
+
+
+def setting_int(name: str, default: int) -> int:
+    value = setting(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise SystemExit(f"{name} must be an integer") from exc
 
 
 def load_json_file(path: pathlib.Path) -> dict:
@@ -281,6 +294,17 @@ def load_aliases(path: pathlib.Path) -> dict[str, dict]:
     hosts = {name: normalize_host_addresses(value, name) for name, value in hosts_raw.items()}
     services = {name: normalize_service_entries(value, name) for name, value in services_raw.items()}
     return {"groups": groups, "hosts": hosts, "services": services}
+
+
+def normalize_client_inventory(client: dict) -> dict:
+    name = client.get("name")
+    if not name:
+        name = "<unnamed>"
+    return {
+        "name": str(name),
+        "ipv4Address": client_ip(client),
+        "raw": client,
+    }
 
 
 def expand_group(group_name: str, groups: dict[str, list[str]], peer_map: dict[str, str]) -> list[str]:
@@ -614,8 +638,154 @@ def compile_rules(
     return commands, set_registry
 
 
+def load_access_control_state(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> dict:
+    rules = load_policy(policy_path)
+    aliases = load_aliases(aliases_path)
+    clients = auth_and_client_list()
+    peer_map = build_peer_map(clients)
+    groups = aliases["groups"]
+    hosts = aliases["hosts"]
+    services = aliases["services"]
+    backend = "ipset" if ipset_available() else "iptables"
+    commands, set_registry = compile_rules(rules, peer_map, groups, hosts, services, backend)
+    return {
+        "backend": backend,
+        "policyPath": str(policy_path),
+        "aliasesPath": str(aliases_path),
+        "peers": [normalize_client_inventory(client) for client in clients],
+        "peerMap": peer_map,
+        "aliases": aliases,
+        "rules": rules,
+        "compiled": {
+            "iptables": commands,
+            "ipsets": [
+                {"name": name, "members": list(members)}
+                for name, members in sorted(set_registry.items())
+            ],
+        },
+    }
+
+
+def load_access_control_inventory(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> dict:
+    state = load_access_control_state(policy_path, aliases_path)
+    return {
+        "backend": state["backend"],
+        "policyPath": state["policyPath"],
+        "aliasesPath": state["aliasesPath"],
+        "peers": state["peers"],
+        "aliases": state["aliases"],
+    }
+
+
+def json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
+    body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def text_response(handler: BaseHTTPRequestHandler, text: str, status: int = 200) -> None:
+    body = text.encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Content-Type", "text/plain; charset=utf-8")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def api_handler(policy_path: pathlib.Path, aliases_path: pathlib.Path):
+    class AccessControlAPIHandler(BaseHTTPRequestHandler):
+        def log_message(self, format: str, *args) -> None:  # noqa: A003
+            return
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.end_headers()
+
+        def do_GET(self) -> None:  # noqa: N802
+            if self.path in {"/healthz", "/api/healthz"}:
+                text_response(self, "ok")
+                return
+            try:
+                state = None
+                if self.path in {
+                    "/api/state",
+                    "/api/v1/state",
+                    "/api/inventory",
+                    "/api/v1/inventory",
+                    "/api/peers",
+                    "/api/v1/peers",
+                    "/api/aliases",
+                    "/api/v1/aliases",
+                    "/api/policies",
+                    "/api/v1/policies",
+                }:
+                    state = load_access_control_state(policy_path, aliases_path)
+                if self.path in {"/api/state", "/api/v1/state"}:
+                    json_response(self, state)
+                    return
+                if self.path in {"/api/inventory", "/api/v1/inventory", "/api/peers", "/api/v1/peers"}:
+                    json_response(
+                        self,
+                        {
+                            "backend": state["backend"],
+                            "policyPath": state["policyPath"],
+                            "aliasesPath": state["aliasesPath"],
+                            "peers": state["peers"],
+                            "aliases": state["aliases"],
+                        },
+                    )
+                    return
+                if self.path in {"/api/aliases", "/api/v1/aliases"}:
+                    json_response(self, {"aliases": state["aliases"]})
+                    return
+                if self.path in {"/api/policies", "/api/v1/policies"}:
+                    json_response(self, {"rules": state["rules"]})
+                    return
+            except urllib.error.HTTPError as exc:
+                text_response(self, f"wg-easy API request failed: {exc}", status=502)
+                return
+            except subprocess.CalledProcessError as exc:
+                stderr = exc.stderr.strip() if exc.stderr else ""
+                stdout = exc.stdout.strip() if exc.stdout else ""
+                message = stderr or stdout or str(exc)
+                text_response(self, f"iptables command failed: {message}", status=500)
+                return
+            except SystemExit as exc:
+                text_response(self, str(exc), status=400)
+                return
+
+            json_response(self, {"error": "not found"}, status=404)
+
+    return AccessControlAPIHandler
+
+
+def serve_api(policy_path: pathlib.Path, aliases_path: pathlib.Path, host: str, port: int) -> None:
+    server = ThreadingHTTPServer((host, port), api_handler(policy_path, aliases_path))
+    print(f"Serving access-control API on http://{host}:{port}")
+    print("Available endpoints: /healthz, /api/state, /api/inventory, /api/aliases, /api/policies")
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync wg-easy access-control rules")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--apply", action="store_true", help="Apply rules live inside the wg-easy container")
+    mode.add_argument("--serve", action="store_true", help="Serve a read-only access-control API")
     parser.add_argument(
         "--policies",
         default=str(get_home_lab_dir() / "access-control" / "policies.json"),
@@ -626,7 +796,13 @@ def main() -> int:
         default=str(get_home_lab_dir() / "access-control" / "aliases.json"),
         help="Path to alias JSON file",
     )
-    parser.add_argument("--apply", action="store_true", help="Apply rules live inside the wg-easy container")
+    parser.add_argument("--host", default=setting("WG_ACCESS_CONTROL_API_HOST", DEFAULT_API_HOST), help="API host to bind")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=setting_int("WG_ACCESS_CONTROL_API_PORT", DEFAULT_API_PORT),
+        help="API port to bind",
+    )
     args = parser.parse_args()
 
     policy_path = pathlib.Path(args.policies)
@@ -646,6 +822,10 @@ def main() -> int:
             print(f"Alias file not found, using example for dry run: {aliases_path}")
         else:
             raise SystemExit(f"Alias file not found: {aliases_path}")
+
+    if args.serve:
+        serve_api(policy_path, aliases_path, args.host, args.port)
+        return 0
 
     rules = load_policy(policy_path)
     aliases = load_aliases(aliases_path)

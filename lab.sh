@@ -265,6 +265,7 @@ usage() {
     echo "             container after its tailscale sidecar was recreated"
     echo "             on its own (see Troubleshooting in README.md)"
     echo "  access-sync Sync wg-easy access-control rules (manual, no restart)"
+    echo "             or serve a read-only access-control API with --serve"
     echo ""
     echo -e "${BOLD}Services:${RESET} ${ALL_SERVICES[*]}"
     echo ""
@@ -275,6 +276,7 @@ usage() {
     echo "  $0 stop                     # stop all services"
     echo "  $0 fix-netns nginx-proxy-manager  # fix a stale netns after a sidecar recreate"
     echo "  $0 access-sync                    # dry-run wg-easy access-control sync"
+    echo "  $0 access-sync --serve            # start the read-only access-control API"
 }
 
 if [ $# -lt 1 ]; then
