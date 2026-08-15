@@ -152,6 +152,11 @@ sudo ss -tulnp | grep :53
 
 `wg-easy` attaches directly to `homelab` with its own pinned IP; the only public service is the authenticated WireGuard UDP endpoint. The web UI is not exposed publicly — it's reachable locally at `http://127.0.0.1:51821` on the host, and to already-connected VPN clients at `http://10.200.0.9:51821`. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
 
+RFC-007's future management UI is planned as a **React** app using
+[hv-uikit-react](https://github.com/pentaho/hv-uikit-react); it should sit on
+top of the logical policy/compiler pipeline and not implement networking logic
+itself.
+
 If you previously ran an older `wg-easy` compose with a different internal network label and get a Docker network label mismatch error, remove the stale network once and start again:
 
 ```bash
@@ -211,15 +216,15 @@ NPM publishes ports 80/443/81 directly on the host (`ports:` in its `compose.yam
 
 ### NPM upstream targets
 
-When adding proxy hosts in NPM, use the Tailscale container name as the upstream (reachable via the `homelab` Docker network):
+When adding proxy hosts in NPM, use the application container/service name as the upstream (reachable via the `homelab` Docker network):
 
 | Service | Upstream host | Upstream port |
 |---|---|---|
-| Pi-hole admin | `tailscale-pihole` | `80` |
-| Immich | `tailscale-immich` | `2283` |
-| Portainer | `tailscale-portainer` | `9000` |
-| Deluge | `tailscale-deluge` | `8112` |
-| Plex | `tailscale-plex` | `32400` |
+| Pi-hole admin | `app-pihole` | `80` |
+| Immich | `app-immich-server` | `2283` |
+| Portainer | `app-portainer` | `9000` |
+| Deluge | `app-deluge` | `8112` |
+| Plex | `app-plex` | `32400` |
 | Jellyfin | `app-jellyfin` | `8096` |
 
 For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — bridge containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
@@ -259,11 +264,11 @@ NPM default credentials (change on first login):
 │  homelab bridge (192.168.100.0/24)              │
 │  gateway: 192.168.100.1 (host)                  │
 │                                                  │
-│  nginx-proxy-manager (unpinned, dynamic IP)     │
+│  nginx-proxy-manager (host-published ports)     │
 │  wg-easy → 192.168.100.9                        │
-│  tailscale-pihole, tailscale-immich,            │
-│  tailscale-portainer, tailscale-deluge,         │
-│  tailscale-plex (dynamic IPs, unpinned)         │
+│  app-pihole, app-immich-server,                 │
+│  app-portainer, app-deluge, app-plex,           │
+│  app-jellyfin (dynamic IPs, unpinned)           │
 └─────────────────────────────────────────────────┘
 
 nginx-proxy-manager also publishes ports 80/443/81 directly on the host,

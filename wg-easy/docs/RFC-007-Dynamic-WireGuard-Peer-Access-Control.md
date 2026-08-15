@@ -263,7 +263,9 @@ step is implemented.
 
 ### 4.2 Management UI
 
-A future management UI should sit on top of the logical policy model:
+A future management UI should sit on top of the logical policy model. The
+preferred implementation stack is **React** with
+[hv-uikit-react](https://github.com/pentaho/hv-uikit-react) for UI components:
 
 ```text
 Management UI
@@ -274,6 +276,8 @@ Management UI
 
 The UI should show logical names wherever possible.
 It should not implement networking logic itself.
+It should remain a presentation layer over the logical policy / compiler
+pipeline.
 
 ### 4.3 Policy compiler improvements
 
@@ -342,7 +346,7 @@ The abstraction must preserve:
 | dynamic peer/LAN ACLs | automatic peer synchronization through wg-easy API |
 | granular rules | richer compiler validation |
 | rule priority | richer compiler validation |
-| default deny | management UI |
+| default deny | management UI (React + hv-uikit-react) |
 | explicit REJECT | policy editing through the UI |
 | DROP fallback | peer inventory UI |
 | no wg-easy restart required | richer state reporting |
