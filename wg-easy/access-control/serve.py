@@ -18,6 +18,23 @@ DEFAULT_DIRECTORY = pathlib.Path(__file__).resolve().parent / "ui" / "dist"
 ALLOWED_CORS_HOSTS = {"localhost", "192.168.1.60"}
 
 
+def is_api_request_path(path: str) -> bool:
+    if path in {"/api/healthz", "/api/openapi.json"}:
+        return True
+    return path.startswith(
+        (
+            "/api/state",
+            "/api/config",
+            "/api/inventory",
+            "/api/peers",
+            "/api/aliases",
+            "/api/policies",
+            "/api/preview",
+            "/api/v1/",
+        )
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serve the access-control API and UI bundle.")
     parser.add_argument("--host", default=DEFAULT_HOST, help="Host to bind to (default: %(default)s)")
@@ -52,7 +69,7 @@ def build_ui_handler(root: pathlib.Path, api_service: AccessControlApiService):
             return
 
         def end_headers(self) -> None:
-            if self.path == "/api" or self.path.startswith("/api/"):
+            if is_api_request_path(self.path):
                 super().end_headers()
                 return
             origin = self.headers.get("Origin")
