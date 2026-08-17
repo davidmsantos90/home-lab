@@ -1,5 +1,3 @@
-import "virtual:uno.css";
-
 import { useEffect, type PropsWithChildren } from "react";
 
 import { startAccessControlMocks } from "../mocks/browser";

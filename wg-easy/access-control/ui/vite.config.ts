@@ -6,6 +6,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
 import unoCSS from "unocss/vite";
+import cssInjectedByJsPlugin from "vite-plugin-css-injected-by-js";
 import { HvAppShellVitePlugin } from "@hitachivantara/app-shell-vite-plugin";
 
 const mockServiceWorkerPath = path.resolve(
@@ -53,7 +54,8 @@ export default defineConfig(async ({ mode }) => ({
   plugins: [
     react(),
     tsconfigPaths(),
-    unoCSS(),
+    unoCSS({ mode: "per-module" }),
+    cssInjectedByJsPlugin({ relativeCSSInjection: true }),
     serveMockServiceWorker(),
     ...(await HvAppShellVitePlugin({
       experimentalNewPackageLayout: true,
