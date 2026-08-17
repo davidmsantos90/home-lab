@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import pathlib
+import subprocess
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
 
 DEFAULT_DIRECTORY = pathlib.Path(__file__).resolve().parent / "dist"
-DEFAULT_CONFIG_PATH = pathlib.Path(__file__).resolve().parent / "app-shell.config.json"
+DEFAULT_CONFIG_PATH = pathlib.Path(os.environ.get("HOME_LAB_DIR", ".")) / "app-shell.config.json"
 
 
 def parse_args() -> argparse.Namespace:
@@ -33,14 +33,7 @@ def parse_args() -> argparse.Namespace:
 def load_config(config_path: pathlib.Path) -> dict:
     if not config_path.exists():
         raise SystemExit(f"App Shell config not found: {config_path}")
-    try:
-        config = json.loads(config_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise SystemExit(f"Invalid App Shell config JSON: {exc.msg}") from exc
-
-    if not isinstance(config, dict):
-        raise SystemExit("App Shell config must be a JSON object")
-    return config
+    return {"path": str(config_path)}
 
 
 def main() -> int:
@@ -50,7 +43,16 @@ def main() -> int:
         raise SystemExit(f"Build output not found: {root}")
 
     config_path = pathlib.Path(args.config).resolve()
-    runtime_config = load_config(config_path)
+    load_config(config_path)
+    generated_script_candidates = [
+        root / "scripts" / "app-shell.sh",
+        root.parent / "scripts" / "app-shell.sh",
+    ]
+    generated_script = next((path for path in generated_script_candidates if path.exists()), None)
+    if generated_script is None:
+        checked = ", ".join(str(path) for path in generated_script_candidates)
+        raise SystemExit(f"Generated App Shell script not found. Checked: {checked}")
+    subprocess.run(["bash", str(generated_script), str(config_path)], cwd=root, check=True)
 
     class AppShellHandler(SimpleHTTPRequestHandler):
         def __init__(self, *handler_args, **handler_kwargs):
@@ -60,17 +62,6 @@ def main() -> int:
             return
 
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/runtime-config.js":
-                body = f"window.__APP_SHELL_RUNTIME_CONFIG__ = {json.dumps(runtime_config)};".encode(
-                    "utf-8"
-                )
-                self.send_response(200)
-                self.send_header("Content-Type", "application/javascript; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
-
             path = self.path.split("?", 1)[0]
             candidate = (root / path.lstrip("/")).resolve()
             if candidate.is_file():
