@@ -1,6 +1,6 @@
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY package.json package-lock.json tsconfig.json tsconfig.node.json vite.config.ts app-shell.config.ts index.html ./
+COPY package.json package-lock.json tsconfig.json tsconfig.node.json vite.config.ts uno.config.ts app-shell.config.ts index.html ./
 COPY src ./src
 RUN npm ci
 RUN npm run build
