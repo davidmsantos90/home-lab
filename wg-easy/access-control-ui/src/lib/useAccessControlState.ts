@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   ACCESS_CONTROL_API_URL,
-  fetchAccessControlState,
+  getAccessControlState,
   type AccessControlState,
-} from "./access-control-api";
+} from "../api/client";
 
 const REFRESH_INTERVAL_MS = 30_000;
 
-function errorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
   return String(error);
 }
 
@@ -23,15 +25,15 @@ export function useAccessControlState() {
   const load = useCallback(async (signal?: AbortSignal) => {
     setRefreshing(true);
     try {
-      const next = await fetchAccessControlState(signal);
-      setState(next);
+      const nextState = await getAccessControlState(signal);
+      setState(nextState);
       setError(null);
       setLastUpdated(new Date().toISOString());
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === "AbortError") {
         return;
       }
-      setError(errorMessage(caught));
+      setError(getErrorMessage(caught));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -41,6 +43,7 @@ export function useAccessControlState() {
   useEffect(() => {
     const controller = new AbortController();
     load(controller.signal);
+
     const timer = window.setInterval(() => {
       load();
     }, REFRESH_INTERVAL_MS);

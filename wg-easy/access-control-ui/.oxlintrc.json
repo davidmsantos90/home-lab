@@ -1,5 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["./node_modules/@hitachivantara/uikit-config/oxlint/strict.json"],
+  "ignorePatterns": ["src/api/openapi-types.ts"],
   "rules": {}
 }

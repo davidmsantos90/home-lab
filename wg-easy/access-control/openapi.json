@@ -1,0 +1,435 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "wg-easy access control API",
+    "version": "1.1.0",
+    "description": "Discovery, preview, persistence, and apply contract for the RFC-007 access-control UI."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8787"
+    }
+  ],
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "getHealthz",
+        "responses": {
+          "200": {
+            "description": "API is healthy",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/state": {
+      "get": {
+        "operationId": "getAccessControlState",
+        "responses": {
+          "200": {
+            "description": "Full access-control snapshot",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlState"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config": {
+      "get": {
+        "operationId": "getAccessControlConfig",
+        "responses": {
+          "200": {
+            "description": "Current aliases and policies document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlConfigDocument"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "putAccessControlConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlConfigDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Persisted aliases and policies without applying firewall changes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlMutationResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/preview": {
+      "post": {
+        "operationId": "previewAccessControlConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlConfigDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preview compiled state for an in-memory draft",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlMutationResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/config/apply": {
+      "post": {
+        "operationId": "applyAccessControlConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlConfigDraft"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Persisted aliases and policies and applied compiled firewall rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlMutationResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/inventory": {
+      "get": {
+        "operationId": "getAccessControlInventory",
+        "responses": {
+          "200": {
+            "description": "Peer inventory and alias catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlInventory"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/aliases": {
+      "get": {
+        "operationId": "getAccessControlAliases",
+        "responses": {
+          "200": {
+            "description": "Alias catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlAliasesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/policies": {
+      "get": {
+        "operationId": "getAccessControlPolicies",
+        "responses": {
+          "200": {
+            "description": "Policy rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlPoliciesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccessControlPeer": {
+        "type": "object",
+        "required": ["name", "ipv4Address", "raw"],
+        "properties": {
+          "name": { "type": "string" },
+          "ipv4Address": { "type": "string" },
+          "raw": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlServiceEntry": {
+        "type": "object",
+        "required": ["protocol", "port"],
+        "properties": {
+          "protocol": { "type": "string" },
+          "port": {
+            "oneOf": [
+              { "type": "integer" },
+              { "type": "string" }
+            ]
+          }
+        },
+        "additionalProperties": true
+      },
+      "AccessControlAliasCatalog": {
+        "type": "object",
+        "required": ["groups", "hosts", "services"],
+        "properties": {
+          "groups": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "hosts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "services": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/AccessControlServiceEntry"
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlRule": {
+        "type": "object",
+        "required": ["action"],
+        "properties": {
+          "source": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "source_group": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "destination": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "destination_group": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "service": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "protocol": { "type": "string" },
+          "port": {
+            "oneOf": [
+              { "type": "integer" },
+              { "type": "string" }
+            ]
+          },
+          "action": { "type": "string" },
+          "comment": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "AccessControlCompiledState": {
+        "type": "object",
+        "required": ["iptables", "ipsets"],
+        "properties": {
+          "iptables": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "ipsets": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "members"],
+              "properties": {
+                "name": { "type": "string" },
+                "members": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlInventory": {
+        "type": "object",
+        "required": ["backend", "policyPath", "aliasesPath", "peers", "aliases"],
+        "properties": {
+          "backend": { "type": "string" },
+          "policyPath": { "type": "string" },
+          "aliasesPath": { "type": "string" },
+          "peers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlPeer" }
+          },
+          "aliases": {
+            "$ref": "#/components/schemas/AccessControlAliasCatalog"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlState": {
+        "allOf": [
+          { "$ref": "#/components/schemas/AccessControlInventory" },
+          {
+            "type": "object",
+            "required": ["peerMap", "rules", "compiled"],
+            "properties": {
+              "peerMap": {
+                "type": "object",
+                "additionalProperties": { "type": "string" }
+              },
+              "rules": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/AccessControlRule" }
+              },
+              "compiled": {
+                "$ref": "#/components/schemas/AccessControlCompiledState"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "AccessControlConfigDraft": {
+        "type": "object",
+        "required": ["aliases", "rules"],
+        "properties": {
+          "aliases": {
+            "$ref": "#/components/schemas/AccessControlAliasCatalog"
+          },
+          "rules": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlRule" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlConfigDocument": {
+        "allOf": [
+          { "$ref": "#/components/schemas/AccessControlConfigDraft" },
+          {
+            "type": "object",
+            "required": ["policyPath", "aliasesPath"],
+            "properties": {
+              "policyPath": { "type": "string" },
+              "aliasesPath": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "AccessControlMutationResult": {
+        "type": "object",
+        "required": ["state", "persisted", "applied"],
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/AccessControlState"
+          },
+          "persisted": {
+            "type": "boolean"
+          },
+          "applied": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlAliasesResponse": {
+        "type": "object",
+        "required": ["aliases"],
+        "properties": {
+          "aliases": { "$ref": "#/components/schemas/AccessControlAliasCatalog" }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlPoliciesResponse": {
+        "type": "object",
+        "required": ["rules"],
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlRule" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}

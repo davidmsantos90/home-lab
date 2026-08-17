@@ -2,9 +2,23 @@
   "name": "access-control-ui",
   "private": true,
   "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "@home-lab": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
+    "./*": {
+      "@home-lab": "./src/*",
+      "import": "./dist/*"
+    }
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "prebuild": "npm run codegen",
     "preview": "vite preview --host 0.0.0.0",
     "check": "npm run check:format && npm run check:types && npm run check:lint",
     "check:types": "tsc --noEmit",
@@ -12,24 +26,23 @@
     "check:format": "prettier --check .",
     "lint": "oxlint --fix",
     "format": "prettier --write .",
-    "test": "vitest"
+    "test": "vitest",
+    "codegen": "openapi-typescript ../access-control/openapi.json -o src/api/openapi-types.ts"
   },
   "prettier": "@hitachivantara/uikit-config/prettier",
   "dependencies": {
     "@emotion/css": "^11.10.6",
     "@emotion/react": "^11.10.6",
     "@emotion/styled": "^11.10.6",
+    "@hitachivantara/app-shell-shared": "^2.3.5",
+    "@hitachivantara/app-shell-vite-plugin": "^2.5.2",
     "@hitachivantara/uikit-react-core": "^6.0.0",
-    "@hitachivantara/uikit-react-icons": "^6.0.0",
-    "@mui/material": "^7.0.2",
-    "i18next": "^22.4.10",
-    "i18next-browser-languagedetector": "^7.0.1",
-    "i18next-http-backend": "^4.0.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "msw": "^2.15.0",
+    "openapi-fetch": "^0.17.0",
+    "openapi-typescript": "^7.13.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-i18next": "^12.2.0",
-    "react-router-dom": "^6.8.2",
-    "tiny-cookie": "^2.4.1"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@hitachivantara/uikit-config": "^0.6.1",

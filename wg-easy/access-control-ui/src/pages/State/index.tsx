@@ -1,46 +1,48 @@
 /* oxlint-disable react/jsx-no-literals */
 
-import { Box, Paper, Stack, Typography } from "@mui/material";
-import { HvTypography } from "@hitachivantara/uikit-react-core";
+import { FileText } from "@phosphor-icons/react";
+import {
+  HvCard,
+  HvCardContent,
+  HvCardHeader,
+  HvTypography,
+} from "@hitachivantara/uikit-react-core";
 
 import { useAccessControlState } from "../../lib/useAccessControlState";
 
-export function Component() {
+export default function StatePage() {
   const { state, loading, error, lastUpdated } = useAccessControlState();
 
   return (
-    <Stack spacing={2}>
+    <div className="flex flex-col gap-6 py-6">
       <HvTypography variant="title1">Raw state</HvTypography>
-      <Typography color="text.secondary">
+      <HvTypography variant="body" className="text-slate-500">
         Machine-readable snapshot returned by the access-control API.
-      </Typography>
+      </HvTypography>
 
       {(loading || error || lastUpdated) && (
-        <Paper elevation={0} sx={{ p: 2, border: "1px solid", borderColor: "divider" }}>
-          <Stack spacing={1}>
-            {loading && <Typography>Loading...</Typography>}
-            {error && <Typography color="error">{error}</Typography>}
-            {lastUpdated && <Typography>Last updated: {lastUpdated}</Typography>}
-          </Stack>
-        </Paper>
+        <HvCard>
+          <HvCardHeader
+            title="Snapshot status"
+            icon={<FileText size={20} weight="duotone" />}
+          />
+          <HvCardContent className="flex flex-col gap-2">
+            {loading && <HvTypography variant="body">Loading...</HvTypography>}
+            {error && <HvTypography variant="body">{error}</HvTypography>}
+            {lastUpdated && (
+              <HvTypography variant="body">Last updated: {lastUpdated}</HvTypography>
+            )}
+          </HvCardContent>
+        </HvCard>
       )}
 
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2,
-          border: "1px solid",
-          borderColor: "divider",
-          overflowX: "auto",
-        }}
-      >
-        <Box
-          component="pre"
-          sx={{ m: 0, fontSize: 12, lineHeight: 1.6, whiteSpace: "pre-wrap" }}
-        >
-          {state ? JSON.stringify(state, null, 2) : "No state loaded yet."}
-        </Box>
-      </Paper>
-    </Stack>
+      <HvCard>
+        <HvCardContent>
+          <pre className="m-0 whitespace-pre-wrap text-sm leading-6">
+            {state ? JSON.stringify(state, null, 2) : "No state loaded yet."}
+          </pre>
+        </HvCardContent>
+      </HvCard>
+    </div>
   );
 }

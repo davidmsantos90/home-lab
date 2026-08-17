@@ -17,12 +17,14 @@ import ipaddress
 import json
 import os
 import pathlib
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
+
+from access_control_api import AccessControlApiService, serve_api
 
 
 CHAIN_NAME = "WG_ACCESS_CONTROL"
@@ -30,6 +32,7 @@ INFRA_CHAIN_NAME = "WG_INFRASTRUCTURE"
 IPSET_PREFIX = "wgac"
 DEFAULT_API_HOST = "127.0.0.1"
 DEFAULT_API_PORT = 8787
+OPENAPI_SPEC_PATH = pathlib.Path(__file__).resolve().parent / "access-control" / "openapi.json"
 NEW_CONN_MATCH = ["-m", "conntrack", "--ctstate", "NEW"]
 ESTABLISHED_CONN_ACCEPT = [
     "-t",
@@ -60,6 +63,10 @@ def get_home_lab_dir() -> pathlib.Path:
 
 def wg_easy_dir() -> pathlib.Path:
     return pathlib.Path(__file__).resolve().parent
+
+
+def access_control_dir() -> pathlib.Path:
+    return wg_easy_dir() / "access-control"
 
 
 def load_env_file(path: pathlib.Path) -> dict[str, str]:
@@ -115,6 +122,15 @@ def load_json_array(path: pathlib.Path) -> list:
     if not isinstance(data, list):
         raise SystemExit(f"File must contain a JSON array: {path}")
     return data
+
+
+def normalize_policy_rules(rules: list) -> list[dict]:
+    if not isinstance(rules, list):
+        raise SystemExit("Policy file must contain a JSON array")
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            raise SystemExit(f"Policy rule at index {index} must be a JSON object")
+    return rules
 
 
 def api_request(opener: urllib.request.OpenerDirector, api_url: str, method: str, path: str, payload: dict | None = None):
@@ -190,11 +206,7 @@ def build_peer_map(clients: list[dict]) -> dict[str, str]:
 
 
 def load_policy(path: pathlib.Path) -> list[dict]:
-    rules = load_json_array(path)
-    for index, rule in enumerate(rules):
-        if not isinstance(rule, dict):
-            raise SystemExit(f"Policy rule at index {index} must be a JSON object")
-    return rules
+    return normalize_policy_rules(load_json_array(path))
 
 
 def normalize_selector_list(value, label: str) -> list[str]:
@@ -278,11 +290,10 @@ def normalize_service_entries(value, service_name: str) -> list[dict]:
     return normalized
 
 
-def load_aliases(path: pathlib.Path) -> dict[str, dict]:
-    aliases = load_json_file(path)
+def normalize_aliases_document(aliases: dict) -> dict[str, dict]:
     extra_keys = set(aliases) - {"groups", "hosts", "services"}
     if extra_keys:
-        raise SystemExit(f"Alias file may only contain top-level groups, hosts, and services: {path}")
+        raise SystemExit("Alias file may only contain top-level groups, hosts, and services")
 
     groups_raw = aliases.get("groups", {})
     hosts_raw = aliases.get("hosts", {})
@@ -296,6 +307,10 @@ def load_aliases(path: pathlib.Path) -> dict[str, dict]:
     return {"groups": groups, "hosts": hosts, "services": services}
 
 
+def load_aliases(path: pathlib.Path) -> dict[str, dict]:
+    return normalize_aliases_document(load_json_file(path))
+
+
 def normalize_client_inventory(client: dict) -> dict:
     name = client.get("name")
     if not name:
@@ -305,6 +320,40 @@ def normalize_client_inventory(client: dict) -> dict:
         "ipv4Address": client_ip(client),
         "raw": client,
     }
+
+
+def resolve_writable_config_path(path: pathlib.Path) -> pathlib.Path:
+    if path.name.endswith(".example"):
+        return path.with_name(path.name.removesuffix(".example"))
+    return path
+
+
+def resolve_effective_config_path(path: pathlib.Path) -> pathlib.Path:
+    writable_path = resolve_writable_config_path(path)
+    if writable_path.exists():
+        return writable_path
+    return path
+
+
+def write_json_document(path: pathlib.Path, payload, *, sort_keys: bool = False) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f"{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temp_path = handle.name
+            json.dump(payload, handle, indent=2, sort_keys=sort_keys)
+            handle.write("\n")
+        os.replace(temp_path, path)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
 
 
 def expand_group(group_name: str, groups: dict[str, list[str]], peer_map: dict[str, str]) -> list[str]:
@@ -638,9 +687,12 @@ def compile_rules(
     return commands, set_registry
 
 
-def load_access_control_state(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> dict:
-    rules = load_policy(policy_path)
-    aliases = load_aliases(aliases_path)
+def build_access_control_state(
+    rules: list[dict],
+    aliases: dict[str, dict],
+    policy_path: pathlib.Path,
+    aliases_path: pathlib.Path,
+) -> tuple[dict, list[list[str]], dict[str, tuple[str, ...]], str]:
     clients = auth_and_client_list()
     peer_map = build_peer_map(clients)
     groups = aliases["groups"]
@@ -648,7 +700,7 @@ def load_access_control_state(policy_path: pathlib.Path, aliases_path: pathlib.P
     services = aliases["services"]
     backend = "ipset" if ipset_available() else "iptables"
     commands, set_registry = compile_rules(rules, peer_map, groups, hosts, services, backend)
-    return {
+    state = {
         "backend": backend,
         "policyPath": str(policy_path),
         "aliasesPath": str(aliases_path),
@@ -664,6 +716,21 @@ def load_access_control_state(policy_path: pathlib.Path, aliases_path: pathlib.P
             ],
         },
     }
+    return state, commands, set_registry, backend
+
+
+def load_access_control_state(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> dict:
+    effective_policy_path = resolve_effective_config_path(policy_path)
+    effective_aliases_path = resolve_effective_config_path(aliases_path)
+    rules = load_policy(effective_policy_path)
+    aliases = load_aliases(effective_aliases_path)
+    state, _, _, _ = build_access_control_state(
+        rules,
+        aliases,
+        effective_policy_path,
+        effective_aliases_path,
+    )
+    return state
 
 
 def load_access_control_inventory(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> dict:
@@ -677,123 +744,110 @@ def load_access_control_inventory(policy_path: pathlib.Path, aliases_path: pathl
     }
 
 
-def json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
-    body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json; charset=utf-8")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
-    handler.end_headers()
-    handler.wfile.write(body)
+def parse_access_control_draft(payload: dict) -> tuple[dict[str, dict], list[dict]]:
+    aliases = payload.get("aliases")
+    rules = payload.get("rules")
+    if not isinstance(aliases, dict):
+        raise SystemExit("Request body must contain an aliases object")
+    if not isinstance(rules, list):
+        raise SystemExit("Request body must contain a rules array")
+    return normalize_aliases_document(aliases), normalize_policy_rules(rules)
 
 
-def text_response(handler: BaseHTTPRequestHandler, text: str, status: int = 200) -> None:
-    body = text.encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "text/plain; charset=utf-8")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
-    handler.end_headers()
-    handler.wfile.write(body)
+def build_mutation_result(state: dict, *, persisted: bool, applied: bool) -> dict:
+    return {
+        "state": state,
+        "persisted": persisted,
+        "applied": applied,
+    }
 
 
-def api_handler(policy_path: pathlib.Path, aliases_path: pathlib.Path):
-    class AccessControlAPIHandler(BaseHTTPRequestHandler):
-        def log_message(self, format: str, *args) -> None:  # noqa: A003
-            return
-
-        def do_OPTIONS(self) -> None:  # noqa: N802
-            self.send_response(204)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
-            self.end_headers()
-
-        def do_GET(self) -> None:  # noqa: N802
-            if self.path in {"/healthz", "/api/healthz"}:
-                text_response(self, "ok")
-                return
-            try:
-                state = None
-                if self.path in {
-                    "/api/state",
-                    "/api/v1/state",
-                    "/api/inventory",
-                    "/api/v1/inventory",
-                    "/api/peers",
-                    "/api/v1/peers",
-                    "/api/aliases",
-                    "/api/v1/aliases",
-                    "/api/policies",
-                    "/api/v1/policies",
-                }:
-                    state = load_access_control_state(policy_path, aliases_path)
-                if self.path in {"/api/state", "/api/v1/state"}:
-                    json_response(self, state)
-                    return
-                if self.path in {"/api/inventory", "/api/v1/inventory", "/api/peers", "/api/v1/peers"}:
-                    json_response(
-                        self,
-                        {
-                            "backend": state["backend"],
-                            "policyPath": state["policyPath"],
-                            "aliasesPath": state["aliasesPath"],
-                            "peers": state["peers"],
-                            "aliases": state["aliases"],
-                        },
-                    )
-                    return
-                if self.path in {"/api/aliases", "/api/v1/aliases"}:
-                    json_response(self, {"aliases": state["aliases"]})
-                    return
-                if self.path in {"/api/policies", "/api/v1/policies"}:
-                    json_response(self, {"rules": state["rules"]})
-                    return
-            except urllib.error.HTTPError as exc:
-                text_response(self, f"wg-easy API request failed: {exc}", status=502)
-                return
-            except subprocess.CalledProcessError as exc:
-                stderr = exc.stderr.strip() if exc.stderr else ""
-                stdout = exc.stdout.strip() if exc.stdout else ""
-                message = stderr or stdout or str(exc)
-                text_response(self, f"iptables command failed: {message}", status=500)
-                return
-            except SystemExit as exc:
-                text_response(self, str(exc), status=400)
-                return
-
-            json_response(self, {"error": "not found"}, status=404)
-
-    return AccessControlAPIHandler
+def persist_access_control_draft(
+    policy_path: pathlib.Path,
+    aliases_path: pathlib.Path,
+    rules: list[dict],
+    aliases: dict[str, dict],
+) -> tuple[pathlib.Path, pathlib.Path]:
+    writable_policy_path = resolve_writable_config_path(policy_path)
+    writable_aliases_path = resolve_writable_config_path(aliases_path)
+    write_json_document(writable_policy_path, rules)
+    write_json_document(writable_aliases_path, aliases, sort_keys=True)
+    return writable_policy_path, writable_aliases_path
 
 
-def serve_api(policy_path: pathlib.Path, aliases_path: pathlib.Path, host: str, port: int) -> None:
-    server = ThreadingHTTPServer((host, port), api_handler(policy_path, aliases_path))
-    print(f"Serving access-control API on http://{host}:{port}")
-    print("Available endpoints: /healthz, /api/state, /api/inventory, /api/aliases, /api/policies")
-    try:
-        server.serve_forever()
-    finally:
-        server.server_close()
+def load_access_control_config(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> dict:
+    effective_policy_path = resolve_effective_config_path(policy_path)
+    effective_aliases_path = resolve_effective_config_path(aliases_path)
+    return {
+        "policyPath": str(effective_policy_path),
+        "aliasesPath": str(effective_aliases_path),
+        "aliases": load_aliases(effective_aliases_path),
+        "rules": load_policy(effective_policy_path),
+    }
+
+
+def preview_access_control_draft(policy_path: pathlib.Path, aliases_path: pathlib.Path, payload: dict) -> dict:
+    aliases, rules = parse_access_control_draft(payload)
+    preview_policy_path = resolve_writable_config_path(policy_path)
+    preview_aliases_path = resolve_writable_config_path(aliases_path)
+    state, _, _, _ = build_access_control_state(
+        rules,
+        aliases,
+        preview_policy_path,
+        preview_aliases_path,
+    )
+    return build_mutation_result(state, persisted=False, applied=False)
+
+
+def save_access_control_draft(policy_path: pathlib.Path, aliases_path: pathlib.Path, payload: dict) -> dict:
+    aliases, rules = parse_access_control_draft(payload)
+    persist_access_control_draft(policy_path, aliases_path, rules, aliases)
+    state = load_access_control_state(policy_path, aliases_path)
+    return build_mutation_result(state, persisted=True, applied=False)
+
+
+def apply_access_control_draft(policy_path: pathlib.Path, aliases_path: pathlib.Path, payload: dict) -> dict:
+    aliases, rules = parse_access_control_draft(payload)
+    applied_policy_path, applied_aliases_path = persist_access_control_draft(
+        policy_path,
+        aliases_path,
+        rules,
+        aliases,
+    )
+    state, commands, set_registry, backend = build_access_control_state(
+        rules,
+        aliases,
+        applied_policy_path,
+        applied_aliases_path,
+    )
+    apply_rules(commands, backend, set_registry)
+    return build_mutation_result(state, persisted=True, applied=True)
+
+
+def build_api_service(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> AccessControlApiService:
+    return AccessControlApiService(
+        openapi_spec_path=OPENAPI_SPEC_PATH,
+        get_state=lambda: load_access_control_state(policy_path, aliases_path),
+        get_config=lambda: load_access_control_config(policy_path, aliases_path),
+        put_config=lambda payload: save_access_control_draft(policy_path, aliases_path, payload),
+        preview_config=lambda payload: preview_access_control_draft(policy_path, aliases_path, payload),
+        apply_config=lambda payload: apply_access_control_draft(policy_path, aliases_path, payload),
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Sync wg-easy access-control rules")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--apply", action="store_true", help="Apply rules live inside the wg-easy container")
-    mode.add_argument("--serve", action="store_true", help="Serve a read-only access-control API")
+    mode.add_argument("--serve", action="store_true", help="Serve the access-control API")
     parser.add_argument(
         "--policies",
-        default=str(get_home_lab_dir() / "access-control" / "policies.json"),
+        default=str(access_control_dir() / "policies.json"),
         help="Path to access policy JSON file",
     )
     parser.add_argument(
         "--aliases",
-        default=str(get_home_lab_dir() / "access-control" / "aliases.json"),
+        default=str(access_control_dir() / "aliases.json"),
         help="Path to alias JSON file",
     )
     parser.add_argument("--host", default=setting("WG_ACCESS_CONTROL_API_HOST", DEFAULT_API_HOST), help="API host to bind")
@@ -806,7 +860,7 @@ def main() -> int:
     args = parser.parse_args()
 
     policy_path = pathlib.Path(args.policies)
-    policy_example_path = get_home_lab_dir() / "access-control" / "policies.json.example"
+    policy_example_path = access_control_dir() / "policies.json.example"
     if not policy_path.exists():
         if not args.apply and policy_example_path.exists() and policy_path.name == "policies.json":
             policy_path = policy_example_path
@@ -815,7 +869,7 @@ def main() -> int:
             raise SystemExit(f"Policy file not found: {policy_path}")
 
     aliases_path = pathlib.Path(args.aliases)
-    aliases_example_path = get_home_lab_dir() / "access-control" / "aliases.json.example"
+    aliases_example_path = access_control_dir() / "aliases.json.example"
     if not aliases_path.exists():
         if not args.apply and aliases_example_path.exists() and aliases_path.name == "aliases.json":
             aliases_path = aliases_example_path
@@ -824,7 +878,7 @@ def main() -> int:
             raise SystemExit(f"Alias file not found: {aliases_path}")
 
     if args.serve:
-        serve_api(policy_path, aliases_path, args.host, args.port)
+        serve_api(build_api_service(policy_path, aliases_path), args.host, args.port)
         return 0
 
     rules = load_policy(policy_path)

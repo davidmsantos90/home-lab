@@ -1,0 +1,30 @@
+logoutput: stderr
+
+internal: eth0 port = 1080
+external: eth0
+
+# No authentication — access control is managed by wg-easy firewall rules
+socksmethod: none
+clientmethod: none
+
+# Allow connections from trusted networks only; firewall (wg-easy) controls
+# which destination hosts/ports are reachable. Customize these ranges for your setup.
+client pass {
+    from: 192.168.1.0/24 to: 0.0.0.0/0
+}
+
+client pass {
+    from: 10.8.0.0/24 to: 0.0.0.0/0
+}
+
+client block {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+}
+
+socks pass {
+    from: 192.168.1.0/24 to: 0.0.0.0/0
+}
+
+socks block {
+    from: 0.0.0.0/0 to: 0.0.0.0/0
+}

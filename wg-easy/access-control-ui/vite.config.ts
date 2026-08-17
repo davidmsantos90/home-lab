@@ -1,31 +1,79 @@
-/// <reference types="vite/client" />
-/// <reference types="vitest" />
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import type { IncomingMessage, ServerResponse } from "node:http";
 
-import react from "@vitejs/plugin-react";
-import unoCSS from "unocss/vite";
 import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
 import tsconfigPaths from "vite-tsconfig-paths";
+import unoCSS from "unocss/vite";
+import { HvAppShellVitePlugin } from "@hitachivantara/app-shell-vite-plugin";
 
-export default defineConfig({
-  plugins: [react(), tsconfigPaths(), unoCSS()],
-  test: {
-    globals: true,
-    environment: "happy-dom",
-    setupFiles: ["src/tests/setupTests.ts"],
-    reporters: "default",
-    coverage: {
-      enabled: false, // disabled by default. run vitest with --coverage
-      provider: "v8",
-      reporter: "lcov",
-      include: ["src/**/*.ts?(x)"],
-      exclude: [
-        "src/**/mocks/*",
-        "src/**/tests/*",
-        "src/**/*.test.ts?(x)",
-        "src/**/styles.[jt]s?(x)",
-        "src/**/*.d.ts",
-        "src/*.tsx",
-      ],
-    },
+const mockServiceWorkerPath = path.resolve(
+  "node_modules/msw/lib/mockServiceWorker.js",
+);
+
+const removeBareModuleScripts = () => ({
+  name: "remove-bare-module-scripts",
+  enforce: "post",
+  transformIndexHtml(html: string) {
+    return html.replaceAll(
+      /<script type="module"[^>]+src="([^/.][^"']*)"[^>]*><\/script>/g,
+      "",
+    );
   },
 });
+
+const serveMockServiceWorker = () => ({
+  name: "serve-mock-service-worker",
+  configureServer(server: { middlewares: { use: typeof useMiddleware } }) {
+    server.middlewares.use(useMiddleware);
+  },
+});
+
+function useMiddleware(
+  req: IncomingMessage,
+  res: ServerResponse,
+  next: (error?: unknown) => void,
+) {
+  if (req.url !== "/mockServiceWorker.js") {
+    next();
+    return;
+  }
+
+  readFile(mockServiceWorkerPath, "utf8")
+    .then((script) => {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/javascript");
+      res.end(script);
+    })
+    .catch(next);
+}
+
+export default defineConfig(async ({ mode }) => ({
+  plugins: [
+    react(),
+    tsconfigPaths(),
+    unoCSS(),
+    serveMockServiceWorker(),
+    ...(await HvAppShellVitePlugin({
+      experimentalNewPackageLayout: true,
+      disableAppsKeyNormalization: true,
+      inlineConfig: true,
+      mode,
+      sourceCondition: "@home-lab",
+      type: "app",
+      modules: [
+        "src/pages/Home",
+        "src/pages/Editor",
+        "src/pages/State",
+        "src/providers/MockingProvider",
+        "src/lib/useAccessControlState",
+        "src/api/client",
+        "src/api/mock-data",
+        "src/mocks/browser",
+        "src/mocks/handlers",
+      ],
+    })),
+    removeBareModuleScripts(),
+  ],
+}));
