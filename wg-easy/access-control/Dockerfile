@@ -1,5 +1,7 @@
 FROM node:22-alpine AS ui-build
 WORKDIR /app/ui
+ARG VITE_ACCESS_CONTROL_API_URL
+ENV VITE_ACCESS_CONTROL_API_URL=${VITE_ACCESS_CONTROL_API_URL}
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci
 COPY ui/ ./

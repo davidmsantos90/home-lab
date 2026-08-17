@@ -2,6 +2,8 @@ services:
   application:
     build:
       context: .
+      args:
+        VITE_ACCESS_CONTROL_API_URL: ${VITE_ACCESS_CONTROL_API_URL}
     container_name: app-${SERVICE}
     environment:
       ACCESS_CONTROL_HOST: "0.0.0.0"
