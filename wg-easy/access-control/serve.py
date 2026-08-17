@@ -52,6 +52,9 @@ def build_ui_handler(root: pathlib.Path, api_service: AccessControlApiService):
             return
 
         def end_headers(self) -> None:
+            if self.path == "/api" or self.path.startswith("/api/"):
+                super().end_headers()
+                return
             origin = self.headers.get("Origin")
             if origin:
                 parsed = urlparse(origin)
