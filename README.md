@@ -43,12 +43,11 @@ home-lab/
 | **Pi-hole** | `53` (DNS), `8080` (admin) | `https://pihole.<tailnet>.ts.net` |
 | **Immich** | `2283` | `https://immich.<tailnet>.ts.net` |
 | **Portainer** | `9000` | `https://portainer.<tailnet>.ts.net` |
-| **App Shell** | `3000` | `—` |
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
 | **Jellyfin** | `8096` | `https://jellyfin.pimlicoa.duckdns.org` |
 | **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
-| **App Shell** | `3000` | `http://127.0.0.1:3000` |
+| **App Shell** | `3000` | `http://<host-ip>:3000` |
 | **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
 
 ## Prerequisites

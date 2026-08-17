@@ -1,13 +1,12 @@
 services:
-  app-shell:
+  application:
     build:
       context: .
-    container_name: app-shell
+    container_name: app-${SERVICE}
     environment:
       APP_SHELL_CONFIG_PATH: /config/app-shell.config.json
-      APP_SHELL_PORT: ${APP_SHELL_PORT:-3000}
     volumes:
       - ${HOME_LAB_DIR:-.}/app-shell.config.json:/config/app-shell.config.json:ro
     ports:
-      - "127.0.0.1:${APP_SHELL_PORT:-3000}:3000"
+      - "0.0.0.0:${SERVICEPORT}:3000/tcp"
     restart: unless-stopped
