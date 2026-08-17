@@ -6,6 +6,7 @@ import argparse
 import os
 import pathlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 from api import AccessControlApiService, api_handler
 from sync import access_control_dir, build_api_service
@@ -14,6 +15,7 @@ from sync import access_control_dir, build_api_service
 DEFAULT_HOST = os.environ.get("ACCESS_CONTROL_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.environ.get("ACCESS_CONTROL_PORT", "8787"))
 DEFAULT_DIRECTORY = pathlib.Path(__file__).resolve().parent / "ui" / "dist"
+ALLOWED_CORS_HOSTS = {"localhost", "192.168.1.60"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -48,6 +50,17 @@ def build_ui_handler(root: pathlib.Path, api_service: AccessControlApiService):
 
         def log_message(self, format: str, *args) -> None:  # noqa: A003
             return
+
+        def end_headers(self) -> None:
+            origin = self.headers.get("Origin")
+            if origin:
+                parsed = urlparse(origin)
+                if parsed.hostname in ALLOWED_CORS_HOSTS:
+                    self.send_header("Access-Control-Allow-Origin", origin)
+                    self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            super().end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
             api_paths = (

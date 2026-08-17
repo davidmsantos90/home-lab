@@ -7,6 +7,7 @@ import pathlib
 import subprocess
 from typing import Callable
 import urllib.error
+from urllib.parse import urlparse
 
 
 @dataclass(frozen=True)
@@ -19,14 +20,26 @@ class AccessControlApiService:
     apply_config: Callable[[dict], dict]
 
 
+ALLOWED_CORS_HOSTS = {"localhost", "192.168.1.60"}
+
+
+def set_cors_headers(handler: BaseHTTPRequestHandler, *, methods: str) -> None:
+    origin = handler.headers.get("Origin")
+    if origin:
+        parsed = urlparse(origin)
+        if parsed.hostname in ALLOWED_CORS_HOSTS:
+            handler.send_header("Access-Control-Allow-Origin", origin)
+            handler.send_header("Vary", "Origin")
+    handler.send_header("Access-Control-Allow-Methods", methods)
+    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+
 def json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
     body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    set_cors_headers(handler, methods="GET, POST, PUT, OPTIONS")
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -36,9 +49,7 @@ def text_response(handler: BaseHTTPRequestHandler, text: str, status: int = 200)
     handler.send_response(status)
     handler.send_header("Content-Type", "text/plain; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type")
+    set_cors_headers(handler, methods="GET, POST, PUT, OPTIONS")
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -78,9 +89,7 @@ def api_handler(service: AccessControlApiService):
 
         def do_OPTIONS(self) -> None:  # noqa: N802
             self.send_response(204)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            set_cors_headers(self, methods="GET, POST, PUT, OPTIONS")
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
