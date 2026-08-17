@@ -20,6 +20,7 @@ services:
       - /config/aliases.json
     volumes:
       - ${HOME_LAB_DIR:-.}:/config
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "0.0.0.0:${SERVICEPORT}:8787/tcp"
     networks:

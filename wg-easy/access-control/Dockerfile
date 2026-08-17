@@ -10,6 +10,7 @@ RUN npm run build
 
 FROM python:3.12-alpine
 WORKDIR /app
+RUN apk add --no-cache docker-cli
 COPY api.py serve.py sync.py openapi.json ./
 COPY aliases.json.example policies.json.example ./
 COPY --from=ui-build /app/ui/dist ./ui/dist
