@@ -11,8 +11,8 @@ This document provides the complete hook strings to configure in the wg-easy web
 ### Automated (Recommended for fresh installs)
 Run the bootstrap script which automatically resolves the dnsmasq container IP:
 ```bash
-cd wg-easy
-bash bootstrap-hooks.sh
+cd wg-easy/hooks
+bash ./bootstrap-hooks.sh
 ```
 
 This resolves `dnsmasq-wg-easy` container IP dynamically and applies rules with no manual work.
@@ -235,7 +235,7 @@ curl -I https://192.168.1.60
   # then query DNS from the VPN client
   ```
   Zero packets captured = the DNAT redirect isn't reaching dnsmasq, almost
-  always a rule-order issue or missing content match (see [DNS_INTERCEPTION.md](./DNS_INTERCEPTION.md) for full diagnostic steps).
+  always a rule-order issue or missing content match (see [DNS Interception docs](../dns/README.md) for full diagnostic steps).
 
 ### Rule order (common pitfall)
 `WG_EASY_HOST`-domain queries can be sent to either the wg0 gateway
@@ -255,7 +255,7 @@ NETMAP rules (see the corrected hook strings above).
 - Check NPM is actually listening on the host's real LAN IP: `docker exec nginx-proxy-manager ip addr show` should show it bound via `ports:`, reachable at the host's own address (e.g. `192.168.1.60:81`)
 
 ### Performance issues / slow DNS
-- Check dnsmasq cache size: `grep cache-size /path/to/wg-easy/dnsmasq.conf` (default: 150)
+- Check dnsmasq cache size: `grep cache-size /path/to/HOME_LAB_DIR/dns/dnsmasq.conf` (default: 150)
 - Monitor dnsmasq: `docker logs -f dnsmasq-wg-easy`
 
 ## DNS Interception Setup Process
@@ -263,7 +263,7 @@ NETMAP rules (see the corrected hook strings above).
 ### Step 1: Ensure dnsmasq is listening on all interfaces
 dnsmasq must listen on `0.0.0.0:5353` (all interfaces), not just `127.0.0.1`, because iptables DNAT redirects traffic to the container's network IP (e.g., `172.28.0.2`).
 
-**File**: [dnsmasq.conf](./dnsmasq.conf)
+**File**: [dnsmasq.conf.example](../dns/dnsmasq.conf.example)
 ```
 port=5353
 ```
@@ -281,7 +281,7 @@ iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex
 These redirect only `WG_EASY_HOST`-domain DNS queries from VPN clients (via wg0) to the dnsmasq container.
 
 ### Step 3: Configure dnsmasq domain rewrites
-**File**: [dnsmasq.conf](./dnsmasq.conf)
+**File**: [dnsmasq.conf.example](../dns/dnsmasq.conf.example)
 ```
 address=/pimlicoa.duckdns.org/10.200.0.60
 ```
@@ -330,7 +330,7 @@ To modify subnet ranges or DNS domains:
    WG_TRANSLATED_LAN_SUBNET=10.200.0.0/24 # Virtual subnet for VPN clients
    ```
 
-2. Update dnsmasq.conf for additional domain rewrites:
+2. Update dnsmasq.conf.example for additional domain rewrites:
    ```
    address=/another-domain.pimlicoa.duckdns.org/10.200.0.X
    ```

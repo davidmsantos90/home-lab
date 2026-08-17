@@ -35,7 +35,7 @@ Neither of these restricts what destinations the **server** will forward a
 client's traffic to once it's decrypted. That's governed entirely by normal
 IP forwarding (`net.ipv4.ip_forward`) and the `iptables FORWARD` chain.
 
-[`bootstrap-hooks.sh`](../bootstrap-hooks.sh) installs:
+[`bootstrap-hooks.sh`](../hooks/bootstrap-hooks.sh) installs:
 
 ```
 iptables -A FORWARD -i wg0 -j ACCEPT
@@ -58,7 +58,7 @@ can reach every proxy host behind it unless each proxy host also has an NPM
 **Access List** restricting by source IP.
 
 Because no SNAT is applied between `wg0` and the `homelab` bridge (see the
-DNAT/SNAT rules in [`bootstrap-hooks.sh`](../bootstrap-hooks.sh)), each
+DNAT/SNAT rules in [`bootstrap-hooks.sh`](../hooks/bootstrap-hooks.sh)), each
 client's real WireGuard tunnel address (e.g. `10.8.0.5`) is preserved all the
 way to NPM — so NPM Access Lists keyed on that address are a valid,
 usable control **for anything routed through NPM by domain name**.
@@ -114,7 +114,7 @@ clients.
 
 `PostDown` must remove the same rules symmetrically (`-D` instead of `-I`),
 matching the existing pattern used for the other PostUp/PostDown pairs in
-[`bootstrap-hooks.sh`](../bootstrap-hooks.sh).
+[`bootstrap-hooks.sh`](../hooks/bootstrap-hooks.sh).
 
 ### Client IP stability
 
@@ -128,7 +128,7 @@ recreated (which would silently drop its restriction until
 
 ### Bootstrap integration
 
-Extend [`bootstrap-hooks.sh`](../bootstrap-hooks.sh) to:
+Extend [`bootstrap-hooks.sh`](../hooks/bootstrap-hooks.sh) to:
 
 1. Parse `WG_RESTRICTED_CLIENTS`.
 2. Append the per-client `ACCEPT`/`DROP` rules to the existing generated

@@ -23,7 +23,7 @@ wg-easy v15 persists hook/user config in `/etc/wireguard/wg-easy.db`. Relying on
 - `wg-easy/compose.yaml`
   - `INIT_DNS: ${WG_VPN_DNS:-10.200.0.1,1.1.1.1}` (first-time setup)
   - one-shot `wg-easy-hooks-bootstrap` service
-- `wg-easy/bootstrap-hooks.sh`
+- `wg-easy/hooks/bootstrap-hooks.sh`
   - updates `POST_UP/POST_DOWN` hooks
   - updates `defaultDns` in wg-easy userconfig via API
 - `wg-easy/.env.example`
@@ -40,7 +40,7 @@ wg-easy v15 persists hook/user config in `/etc/wireguard/wg-easy.db`. Relying on
 The original default of `WG_VPN_DNS=10.200.0.60` (Pi-hole's translated
 address) pointed VPN clients directly at Pi-hole, which turned out to
 **bypass** the per-domain DNS interception added later (see
-[DNS_INTERCEPTION.md](/Users/davsantos/github/misc/home-lab/wg-easy/DNS_INTERCEPTION.md)):
+[DNS Interception docs](../dns/README.md)):
 queries only get rewritten (e.g. `nginx.pimlicoa.duckdns.org` →
 `10.200.0.5`) if they first hit the VPN gateway (`10.200.0.1`), which
 DNAT-redirects them to the `dnsmasq` sidecar before forwarding upstream to

@@ -295,12 +295,12 @@ case "$COMMAND" in
 esac
 
 if [ "$COMMAND" = "access-sync" ]; then
-    (cd "$SCRIPT_DIR/wg-easy" && python3 ./access-control-sync.py "$@")
+    (cd "$SCRIPT_DIR/wg-easy/access-control" && python3 ./sync.py "$@")
     exit $?
 fi
 
 if [ "$COMMAND" = "access-ui" ]; then
-    (cd "$SCRIPT_DIR/wg-easy/access-control-ui" && npm run dev)
+    (cd "$SCRIPT_DIR/wg-easy/access-control/ui" && npm run dev)
     exit $?
 fi
 

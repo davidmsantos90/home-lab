@@ -10,7 +10,7 @@ WireGuard VPN management stack with automatic DuckDNS updates.
 - Admin UI is bound to `127.0.0.1:51821` on the host only (no public exposure), and is additionally reachable by authenticated VPN clients at a dedicated translated IP (see "Accessing admin UIs over the wg-easy VPN" in the root [README.md](/Users/davsantos/github/misc/home-lab/README.md))
 - RFC-007's future management UI is planned as a React app using [hv-uikit-react](https://github.com/pentaho/hv-uikit-react)
 - The access-control synchronizer can also serve a read-only API (`./lab.sh access-sync --serve`) with live peer discovery and policy preview data for future UI work
-- The React UI prototype lives in [access-control-ui/](/Users/davsantos/github/misc/home-lab/wg-easy/access-control-ui) and can be started with `./lab.sh access-ui`
+- The React UI prototype lives in [access-control/ui/](/Users/davsantos/github/misc/home-lab/wg-easy/access-control/ui) and can be started with `./lab.sh access-ui`
 
 ## Dependencies
 
@@ -57,7 +57,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-The stack includes a one-shot bootstrap service ([bootstrap-hooks.sh](/Users/davsantos/github/misc/home-lab/wg-easy/bootstrap-hooks.sh)) that applies the working hooks through the wg-easy API after startup.
+The stack includes a one-shot bootstrap service ([bootstrap-hooks.sh](/Users/davsantos/github/misc/home-lab/wg-easy/hooks/bootstrap-hooks.sh)) that applies the working hooks through the wg-easy API after startup.
 
 Check bootstrap result:
 
@@ -143,16 +143,16 @@ These values are also what the bootstrap service applies automatically on fresh 
 
 ### Hook backup/export
 
-Run [backup-hooks.sh](/Users/davsantos/github/misc/home-lab/wg-easy/backup-hooks.sh) from [wg-easy/](/Users/davsantos/github/misc/home-lab/wg-easy):
+Run [backup-hooks.sh](/Users/davsantos/github/misc/home-lab/wg-easy/hooks/backup-hooks.sh) from [wg-easy/](/Users/davsantos/github/misc/home-lab/wg-easy):
 
 ```bash
-./backup-hooks.sh
+./hooks/backup-hooks.sh
 ```
 
 Custom target:
 
 ```bash
-./backup-hooks.sh wg-easy ./data/backups
+./hooks/backup-hooks.sh wg-easy ./data/backups
 ```
 
 This exports:
@@ -197,7 +197,7 @@ responses that need translated addresses for overlapping clients.
 The setup includes:
 - **dnsmasq service** in wg-easy compose: listens on `127.0.0.1:5353`, forwards upstream to Pi-hole
 - **DNS DNAT rules** in PostUp hooks: redirect all wg0 port 53 traffic to `DNSMASQ_IP:5353`
-- **dnsmasq.conf**: defines local answer overrides (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.60`)
+- **dnsmasq.conf.example**: defines local answer overrides (copy to `HOME_LAB_DIR/dns/dnsmasq.conf`)
 
 When a VPN client queries DNS:
 1. DNS request hits port 53 on wg0
@@ -207,7 +207,7 @@ When a VPN client queries DNS:
 5. Otherwise dnsmasq forwards upstream to Pi-hole
 6. VPN client receives the answer and routes accordingly
 
-Configure local DNS overrides in [`dnsmasq.conf`](./dnsmasq.conf). A single
+Configure local DNS overrides in [`dnsmasq.conf.example`](./dns/dnsmasq.conf.example). A single
 wildcard rule covers the whole domain (and all its subdomains), so any local
 homelab host under it — current or future — is translated automatically:
 
@@ -269,7 +269,7 @@ it appears:
   Restricting a client's AllowedIPs to a single host only stops that
   client's own OS from routing elsewhere by default — a client who edits
   their own `.conf` to add broader routes is not blocked server-side, because
-  [`bootstrap-hooks.sh`](./bootstrap-hooks.sh) installs a blanket
+  [`bootstrap-hooks.sh`](./hooks/bootstrap-hooks.sh) installs a blanket
   `iptables -A FORWARD -i wg0 -j ACCEPT` (and the matching `-o wg0` rule) that
   accepts all wg0 traffic to any destination, for every client.
 - **Almost everything goes through one IP.** Nearly all homelab services are
@@ -283,7 +283,7 @@ it appears:
 - **Direct-IP access bypasses NPM (and its Access Lists) entirely.** Because
   each client's real WireGuard tunnel address (e.g. `10.8.0.5`) is preserved
   all the way to NPM (no SNAT is applied on that path — see
-  [`bootstrap-hooks.sh`](./bootstrap-hooks.sh)'s NAT rules), NPM Access Lists
+  [`bootstrap-hooks.sh`](./hooks/bootstrap-hooks.sh)'s NAT rules), NPM Access Lists
   keyed on that address do work for anything routed *through* NPM by domain
   name. But nothing today stops a client from hitting a service directly by
   translated/LAN IP and port (e.g. `10.200.0.32:32400` for Plex), completely

@@ -221,6 +221,6 @@ script despite the added maintenance surface.
 - [RFC-001 — WireGuard Remote Access](./RFC-001-wireguard-remote-access.md)
 - [RFC-003 — WireGuard DNS via Pi-hole](./RFC-003-wireguard-dns-via-pihole.md)
 - [RFC-005 — Per-Client Access Restriction](./RFC-005-per-client-access-restriction.md)
-- [wg-easy/DNS_INTERCEPTION.md](../DNS_INTERCEPTION.md)
-- [wg-easy/bootstrap-hooks.sh](../bootstrap-hooks.sh)
+- [wg-easy/dns/README.md](../dns/README.md)
+- [wg-easy/hooks/bootstrap-hooks.sh](../hooks/bootstrap-hooks.sh)
 - [iptables string match extension](https://man7.org/linux/man-pages/man8/iptables-extensions.8.html)

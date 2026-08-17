@@ -14,7 +14,7 @@ services:
     container_name: dnsmasq-wg-easy
     entrypoint: sh -c 'apk add --no-cache dnsmasq && dnsmasq -k'
     volumes:
-      - ./dnsmasq.conf:/etc/dnsmasq.conf:ro
+      - ${HOME_LAB_DIR:-.}/dns/dnsmasq.conf:/etc/dnsmasq.conf:ro
     cap_add:
       - NET_ADMIN
     networks:
@@ -93,7 +93,7 @@ services:
       # Must match dnsmasq's pinned ipv4_address on wg_easy_internal below.
       DNSMASQ_IP: ${DNSMASQ_IP:-172.28.0.2}
     volumes:
-      - ./bootstrap-hooks.sh:/bootstrap-hooks.sh:ro
+      - ./hooks/bootstrap-hooks.sh:/bootstrap-hooks.sh:ro
     entrypoint: ["/bin/sh", "/bootstrap-hooks.sh"]
     networks:
       - wg_easy_internal

@@ -9,7 +9,7 @@ This document explains how DNS interception works in wg-easy and how to troubles
 > Everything else bypasses dnsmasq entirely, reaching Pi-hole directly via
 > the existing NETMAP translation — this preserves the client's real
 > WireGuard tunnel IP in Pi-hole's Query Log for the vast majority of
-> traffic. See [RFC-006](./docs/RFC-006-vpn-client-dns-identity.md) for the
+> traffic. See [RFC-006](../docs/RFC-006-vpn-client-dns-identity.md) for the
 > full rationale and the tradeoffs of this approach.
 
 ```
@@ -84,7 +84,7 @@ intercepts it if the packet's payload contains `pimlicoa.duckdns.org`'s
 DNS wire-format bytes:
 
 ```bash
-# From bootstrap-hooks.sh PostUp (DNS_MATCH_HEX computed at bootstrap time
+# From ../hooks/bootstrap-hooks.sh PostUp (DNS_MATCH_HEX computed at bootstrap time
 # from WG_EASY_HOST via domain_to_wire_hex())
 iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -m string --algo bm --hex-string "|0870696d6c69636f61076475636b646e73036f726700|" --icase -j DNAT --to-destination 172.28.0.2:5353
 iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex-string "|0870696d6c69636f61076475636b646e73036f726700|" --icase -j DNAT --to-destination 172.28.0.2:5353
@@ -115,7 +115,7 @@ saw it, and would never reach dnsmasq for rewriting.
 dnsmasq receives the redirected query and applies rewrite rules:
 
 ```bash
-# From dnsmasq.conf
+# From dnsmasq.conf.example
 address=/pimlicoa.duckdns.org/10.200.0.60   # wildcard: covers all subdomains
 server=10.200.0.60  # Defensive fallback only — see below
 ```
@@ -130,7 +130,7 @@ For this example:
 Response traffic from dnsmasq needs to appear to come from wg-easy, not from dnsmasq:
 
 ```bash
-# From bootstrap-hooks.sh PostUp
+# From ../hooks/bootstrap-hooks.sh PostUp
 iptables -t nat -A POSTROUTING -d 172.28.0.2/32 -p udp --dport 5353 -j MASQUERADE
 iptables -t nat -A POSTROUTING -d 172.28.0.2/32 -p tcp --dport 5353 -j MASQUERADE
 ```
@@ -163,7 +163,7 @@ the installed rule — see below).
 
 **Cause A**: dnsmasq is listening only on localhost (127.0.0.1), but DNAT redirects to container IP (172.28.0.2).
 
-**Solution**: Check dnsmasq.conf:
+**Solution**: Check HOME_LAB_DIR/dns/dnsmasq.conf:
 ```bash
 docker exec dnsmasq-wg-easy cat /etc/dnsmasq.conf
 ```
@@ -215,7 +215,7 @@ docker exec dnsmasq-wg-easy netstat -tuln | grep 5353
 # Should show: 0.0.0.0:5353 (not 127.0.0.1:5353)
 ```
 
-If wrong, update [dnsmasq.conf](./dnsmasq.conf) and restart:
+If wrong, update [dnsmasq.conf.example](./dnsmasq.conf.example) and restart:
 ```bash
 docker compose restart dnsmasq
 # or, equivalently, using the container name directly:
@@ -272,7 +272,7 @@ available" since there's no service literally named that.
 2. Run bootstrap script without env vars to auto-load from .env:
    ```bash
    cd wg-easy
-   bash bootstrap-hooks.sh
+   bash ../hooks/bootstrap-hooks.sh
    ```
 
 3. If still fails, manually test authentication:
@@ -321,7 +321,7 @@ nslookup nginx.pimlicoa.duckdns.org
 
 Since every NPM proxy host under `pimlicoa.duckdns.org` shares the same
 translated address (`10.200.0.60`), one wildcard rule in
-[dnsmasq.conf](./dnsmasq.conf) covers the whole domain (and all its
+[dnsmasq.conf.example](./dnsmasq.conf.example) covers the whole domain (and all its
 subdomains) automatically:
 
 ```bash
@@ -356,7 +356,7 @@ NPM-proxied domain, since they resolve to NPM's translated address
 (`10.200.0.60`) too.
 
 Only add a *new* translated IP (and matching dedicated DNAT/SNAT pair in
-`bootstrap-hooks.sh`, following the same pattern used for the wg-easy admin
+`../hooks/bootstrap-hooks.sh`, following the same pattern used for the wg-easy admin
 UI's `10.200.0.9 ↔ 192.168.100.9` rule) if a client needs to reach a
 service that lives on the `homelab` bridge (a *different* subnet from the
 home LAN, unreachable via the generic NETMAP rule) **directly** — e.g. a

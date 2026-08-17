@@ -6,7 +6,7 @@ This directory holds the first manual implementation slice for RFC-007.
 
 - `aliases.json.example` — starter alias catalog for groups, hosts, and services
 - `policies.json.example` — starter rules file
-- `../access-control-sync.py` — manual sync tool
+- `./sync.py` — manual sync tool
 
 ## Usage
 

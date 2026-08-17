@@ -24,7 +24,7 @@ import urllib.error
 import urllib.request
 from http.cookiejar import CookieJar
 
-from access_control_api import AccessControlApiService, serve_api
+from api import AccessControlApiService, serve_api
 
 
 CHAIN_NAME = "WG_ACCESS_CONTROL"
@@ -32,7 +32,7 @@ INFRA_CHAIN_NAME = "WG_INFRASTRUCTURE"
 IPSET_PREFIX = "wgac"
 DEFAULT_API_HOST = "127.0.0.1"
 DEFAULT_API_PORT = 8787
-OPENAPI_SPEC_PATH = pathlib.Path(__file__).resolve().parent / "access-control" / "openapi.json"
+OPENAPI_SPEC_PATH = pathlib.Path(__file__).resolve().parent / "openapi.json"
 NEW_CONN_MATCH = ["-m", "conntrack", "--ctstate", "NEW"]
 ESTABLISHED_CONN_ACCEPT = [
     "-t",
@@ -57,7 +57,7 @@ def get_home_lab_dir() -> pathlib.Path:
     home_lab_dir = setting("HOME_LAB_DIR")
     if home_lab_dir:
         return pathlib.Path(home_lab_dir)
-    # Fallback: detect from script location (wg-easy/access-control-sync.py -> ../home-lab)
+    # Fallback: detect from script location (wg-easy/access-control/sync.py -> ../home-lab)
     return pathlib.Path(__file__).resolve().parents[1]
 
 
@@ -66,7 +66,7 @@ def wg_easy_dir() -> pathlib.Path:
 
 
 def access_control_dir() -> pathlib.Path:
-    return wg_easy_dir() / "access-control"
+    return pathlib.Path(__file__).resolve().parent
 
 
 def load_env_file(path: pathlib.Path) -> dict[str, str]:

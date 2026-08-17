@@ -263,7 +263,7 @@ Current manual peer-name-to-IP synchronization remains valid until this future
 step is implemented.
 
 The repo already exposes a read-only access-control API through
-`wg-easy/access-control-sync.py --serve`, which returns the current peer
+`wg-easy/access-control/sync.py --serve`, which returns the current peer
 inventory plus normalized policies/aliases for future UI consumption. The
 management UI itself remains planned.
 

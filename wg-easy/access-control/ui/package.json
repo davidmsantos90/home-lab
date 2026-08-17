@@ -27,7 +27,7 @@
     "lint": "oxlint --fix",
     "format": "prettier --write .",
     "test": "vitest",
-    "codegen": "openapi-typescript ../access-control/openapi.json -o src/api/openapi-types.ts"
+    "codegen": "openapi-typescript ../openapi.json -o src/api/openapi-types.ts"
   },
   "prettier": "@hitachivantara/uikit-config/prettier",
   "dependencies": {

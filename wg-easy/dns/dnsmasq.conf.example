@@ -1,0 +1,17 @@
+# dnsmasq example for local DNS rewrites.
+# Copy this file to ${HOME_LAB_DIR}/dns/dnsmasq.conf and replace the placeholders.
+
+# Listen on the port targeted by the wg-easy DNAT rules.
+port=5353
+
+# Optional defensive fallback upstream.
+# Replace with your local DNS resolver if you want one.
+# server=YOUR_UPSTREAM_DNS_IP
+
+# Replace with the domain you want to rewrite and its translated IP.
+address=/example.home.lab/10.0.0.60
+
+# Useful when testing or troubleshooting rewrites.
+log-queries
+log-facility=/var/log/dnsmasq.log
+cache-size=150
