@@ -3,7 +3,8 @@ import createClient from "openapi-fetch";
 import type { components, paths } from "./openapi-types";
 
 export const ACCESS_CONTROL_API_URL =
-  import.meta.env.VITE_ACCESS_CONTROL_API_URL ?? "http://127.0.0.1:8787";
+  import.meta.env.VITE_ACCESS_CONTROL_API_URL ??
+  (import.meta.env.DEV ? "http://127.0.0.1:8787" : "/");
 
 export type AccessControlState = components["schemas"]["AccessControlState"];
 export type AccessControlInventory = components["schemas"]["AccessControlInventory"];

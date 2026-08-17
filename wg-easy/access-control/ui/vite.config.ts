@@ -61,7 +61,7 @@ export default defineConfig(async ({ mode }) => ({
       inlineConfig: true,
       mode,
       sourceCondition: "@home-lab",
-      type: "app",
+      type: mode === "development" ? "app" : "bundle",
       modules: [
         "src/pages/Home",
         "src/pages/Editor",

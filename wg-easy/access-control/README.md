@@ -16,9 +16,12 @@ This directory holds the first manual implementation slice for RFC-007.
 4. Run:
 
 ```bash
-./lab.sh access-sync              # dry run
-./lab.sh access-sync --apply      # apply rules
-./lab.sh access-sync --serve      # read-only API for peer discovery / preview
+./lab.sh access-control-api       # dry run
+./lab.sh access-control-api --apply
+                                  # apply rules
+./lab.sh access-control-api --serve
+                                  # read-only API for peer discovery / preview
+./lab.sh access-control-serve     # serve the access-control API and UI
 ```
 
 Use `--policies` and `--aliases` to point at different files, or omit `--apply`
@@ -29,18 +32,38 @@ creating your own files.
 
 ## API Mode
 
-`--serve` starts a read-only HTTP API that exposes the live wg-easy peer
-inventory plus the normalized alias/policy snapshot used by the compiler.
+`./lab.sh access-control-api --serve` starts a read-only API-only server for the live
+wg-easy peer inventory plus the normalized alias/policy snapshot used by the
+compiler.
 
 Default bind: `127.0.0.1:8787`
 
 Endpoints:
 
-- `/healthz`
+- `/api/healthz`
 - `/api/state`
 - `/api/inventory` (alias: `/api/peers`)
 - `/api/aliases`
 - `/api/policies`
+- `/api/openapi.json`
+
+## UI Bundle
+
+Build the UI from `wg-easy/access-control/ui/`, then serve the generated bundle
+and the backend API together from `wg-easy/access-control/serve.py`.
+If `policies.json` or `aliases.json` are missing, the server falls back to the
+matching `.example` files for read-only startup.
+
+Default bind: `0.0.0.0:8787`
+
+Environment overrides:
+
+- `ACCESS_CONTROL_HOST`
+- `ACCESS_CONTROL_PORT`
+- `ACCESS_CONTROL_UI_DIST_DIR`
+
+This is the recommended runtime entrypoint. It serves the app at `/` and the
+API exclusively under `/api/...`.
 
 ## Alias Format
 

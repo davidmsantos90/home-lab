@@ -1,0 +1,39 @@
+{
+  "name": "Home Lab",
+  "logo": null,
+  "apps": {
+    "$app/": "/",
+    "$app/pages/Home.js": "/src/pages/Home",
+    "$app/pages/Apps.js": "/src/pages/Apps",
+    "$app/lib/runtime-config.js": "/src/lib/runtime-config"
+  },
+  "navigationMode": "ONLY_LEFT",
+  "translationsBaseUrl": false,
+  "theming": {
+    "theme": "pentaho"
+  },
+  "mainPanel": {
+    "disableGutters": true,
+    "maxWidth": false,
+    "views": [
+      {
+        "bundle": "$app/pages/Home.js",
+        "route": "/"
+      },
+      {
+        "bundle": "$app/pages/Apps.js",
+        "route": "/apps"
+      }
+    ]
+  },
+  "menu": [
+    {
+      "label": "Dashboard",
+      "target": "/"
+    },
+    {
+      "label": "Configuration",
+      "target": "/apps"
+    }
+  ]
+}

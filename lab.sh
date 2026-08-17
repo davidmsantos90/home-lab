@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ALL_SERVICES=(nginx-proxy-manager pihole immich portainer deluge plex jellyfin wg-easy)
+ALL_SERVICES=(nginx-proxy-manager pihole immich portainer deluge plex jellyfin wg-easy app-shell)
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
@@ -264,9 +264,10 @@ usage() {
     echo "  fix-netns  Detect/fix a stale network namespace on the app"
     echo "             container after its tailscale sidecar was recreated"
     echo "             on its own (see Troubleshooting in README.md)"
-    echo "  access-sync Sync wg-easy access-control rules (manual, no restart)"
-    echo "             or serve a read-only access-control API with --serve"
-    echo "  access-ui   Start the wg-easy access-control React UI"
+    echo "  access-control-api  Sync wg-easy access-control rules (manual, no restart)"
+    echo "                     or serve the API only with --serve"
+    echo "  access-control-ui   Start the wg-easy access-control React UI"
+    echo "  access-control-serve Serve the wg-easy access-control API and UI"
     echo ""
     echo -e "${BOLD}Services:${RESET} ${ALL_SERVICES[*]}"
     echo ""
@@ -276,9 +277,10 @@ usage() {
     echo "  $0 update immich jellyfin   # update two services"
     echo "  $0 stop                     # stop all services"
     echo "  $0 fix-netns nginx-proxy-manager  # fix a stale netns after a sidecar recreate"
-    echo "  $0 access-sync                    # dry-run wg-easy access-control sync"
-    echo "  $0 access-sync --serve            # start the read-only access-control API"
-    echo "  $0 access-ui                      # start the React access-control UI"
+    echo "  $0 access-control-api             # dry-run wg-easy access-control sync"
+    echo "  $0 access-control-api --serve     # start the read-only access-control API"
+    echo "  $0 access-control-ui              # start the React access-control UI"
+    echo "  $0 access-control-serve           # serve the access-control API and UI"
 }
 
 if [ $# -lt 1 ]; then
@@ -289,18 +291,23 @@ COMMAND=$1; shift
 
 # Validate command
 case "$COMMAND" in
-    start|stop|restart|update|status|fix-netns|access-sync|access-ui) ;;
+    start|stop|restart|update|status|fix-netns|access-control-api|access-control-ui|access-control-serve) ;;
     help|--help|-h) usage; exit 0 ;;
     *) error "lab" "Unknown command: $COMMAND"; usage; exit 1 ;;
 esac
 
-if [ "$COMMAND" = "access-sync" ]; then
+if [ "$COMMAND" = "access-control-api" ]; then
     (cd "$SCRIPT_DIR/wg-easy/access-control" && python3 ./sync.py "$@")
     exit $?
 fi
 
-if [ "$COMMAND" = "access-ui" ]; then
+if [ "$COMMAND" = "access-control-ui" ]; then
     (cd "$SCRIPT_DIR/wg-easy/access-control/ui" && npm run dev)
+    exit $?
+fi
+
+if [ "$COMMAND" = "access-control-serve" ]; then
+    (cd "$SCRIPT_DIR/wg-easy/access-control" && python3 ./serve.py "$@")
     exit $?
 fi
 

@@ -21,6 +21,9 @@ home-lab/
 ├── portainer/
 │   ├── compose.yaml
 │   └── .env
+├── app-shell/
+│   ├── compose.yaml
+│   └── .env.example
 ├── deluge/
 │   ├── compose.yaml
 │   └── .env
@@ -40,10 +43,12 @@ home-lab/
 | **Pi-hole** | `53` (DNS), `8080` (admin) | `https://pihole.<tailnet>.ts.net` |
 | **Immich** | `2283` | `https://immich.<tailnet>.ts.net` |
 | **Portainer** | `9000` | `https://portainer.<tailnet>.ts.net` |
+| **App Shell** | `3000` | `—` |
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
 | **Jellyfin** | `8096` | `https://jellyfin.pimlicoa.duckdns.org` |
 | **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
+| **App Shell** | `3000` | `http://127.0.0.1:3000` |
 | **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
 
 ## Prerequisites
@@ -157,7 +162,7 @@ RFC-007's future management UI is planned as a **React** app using
 top of the logical policy/compiler pipeline and not implement networking logic
 itself.
 
-The UI prototype currently lives in [wg-easy/access-control-ui/](/Users/davsantos/github/misc/home-lab/wg-easy/access-control-ui) and can be launched with `./lab.sh access-ui`.
+The main App Shell launcher lives in [app-shell/](/Users/davsantos/github/misc/home-lab/app-shell) and can be launched with `./lab.sh start app-shell`.
 
 If you previously ran an older `wg-easy` compose with a different internal network label and get a Docker network label mismatch error, remove the stale network once and start again:
 
