@@ -1,0 +1,29 @@
+services:
+  application:
+    build:
+      context: .
+    container_name: app-${SERVICE}
+    environment:
+      ACCESS_CONTROL_HOST: "0.0.0.0"
+      ACCESS_CONTROL_PORT: "8787"
+      WG_EASY_API_URL: ${WG_EASY_API_URL:-http://wg-easy:51821}
+      WG_EASY_ADMIN_USERNAME: ${WG_EASY_ADMIN_USERNAME}
+      WG_EASY_ADMIN_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
+    command:
+      - python3
+      - ./serve.py
+      - --policies
+      - /config/policies.json
+      - --aliases
+      - /config/aliases.json
+    volumes:
+      - ${HOME_LAB_DIR:-.}:/config
+    ports:
+      - "0.0.0.0:${SERVICEPORT}:8787/tcp"
+    networks:
+      - homelab
+    restart: unless-stopped
+
+networks:
+  homelab:
+    external: true

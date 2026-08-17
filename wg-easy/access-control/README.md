@@ -21,8 +21,25 @@ This directory holds the first manual implementation slice for RFC-007.
                                   # apply rules
 ./lab.sh access-control-api --serve
                                   # read-only API for peer discovery / preview
-./lab.sh access-control-serve     # serve the access-control API and UI
+./lab.sh access-control-serve     # start the access-control API and UI container
 ```
+
+### Container runtime (recommended)
+
+The access-control API + UI bundle can run as a single containerized service
+through the main lab script:
+
+```bash
+cd wg-easy/access-control
+cp .env.example .env
+./lab.sh access-control-serve
+```
+
+This image builds the UI with `npm ci` (never `npm install`) so the checked-in
+`package-lock.json` is always respected.
+
+The `access-control-api` and `access-control-ui` lab commands still run the
+API sync tool and Vite dev server directly for local development.
 
 Use `--policies` and `--aliases` to point at different files, or omit `--apply`
 for a dry run.

@@ -1,5 +1,8 @@
 .DS_Store
 
+node_modules/
+dist/
+
 .git/
 .vscode/
 .idea/
@@ -10,3 +13,5 @@ ts/
 wg-easy/data/
 data/
 letsencrypt/
+
+__pycache__/

@@ -267,7 +267,7 @@ usage() {
     echo "  access-control-api  Sync wg-easy access-control rules (manual, no restart)"
     echo "                     or serve the API only with --serve"
     echo "  access-control-ui   Start the wg-easy access-control React UI"
-    echo "  access-control-serve Serve the wg-easy access-control API and UI"
+    echo "  access-control-serve Start the wg-easy access-control API and UI container"
     echo ""
     echo -e "${BOLD}Services:${RESET} ${ALL_SERVICES[*]}"
     echo ""
@@ -280,7 +280,7 @@ usage() {
     echo "  $0 access-control-api             # dry-run wg-easy access-control sync"
     echo "  $0 access-control-api --serve     # start the read-only access-control API"
     echo "  $0 access-control-ui              # start the React access-control UI"
-    echo "  $0 access-control-serve           # serve the access-control API and UI"
+    echo "  $0 access-control-serve           # start the access-control API and UI container"
 }
 
 if [ $# -lt 1 ]; then
@@ -307,7 +307,10 @@ if [ "$COMMAND" = "access-control-ui" ]; then
 fi
 
 if [ "$COMMAND" = "access-control-serve" ]; then
-    (cd "$SCRIPT_DIR/wg-easy/access-control" && python3 ./serve.py "$@")
+    ensure_networks
+    info "access-control" "Starting containerized API + UI..."
+    (cd "$SCRIPT_DIR/wg-easy/access-control" && docker compose up -d --build)
+    success "access-control" "Started"
     exit $?
 fi
 
