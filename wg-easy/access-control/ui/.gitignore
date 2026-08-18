@@ -18,6 +18,12 @@ dist-ssr
 *.tgz
 coverage
 
+# Generated files (not committed to master)
+src/api/*
+# Except for custom overrides and modifications
+!src/api/apiExtras.ts
+!src/api/apiFetcher.ts
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

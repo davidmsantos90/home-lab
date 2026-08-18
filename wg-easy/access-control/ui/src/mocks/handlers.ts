@@ -1,20 +1,25 @@
 import { http, HttpResponse } from "msw";
 
-import {
-  ACCESS_CONTROL_API_URL,
-  type AccessControlConfigDraft,
-} from "../api/client";
+import type { AccessControlConfigDraft } from "../api/apiSchemas";
 import {
   buildMockAccessControlConfigDocument,
   buildMockAccessControlState,
   mockAccessControlConfigDraft,
-} from "../api/mock-data";
+} from "../lib/mock-data";
+import { ACCESS_CONTROL_API_URL } from "../lib/queryClient";
 
-const apiUrl = (path: string) => new URL(path, ACCESS_CONTROL_API_URL).toString();
+const apiUrl = (path: string) =>
+  new URL(path, ACCESS_CONTROL_API_URL).toString();
 
-let currentDraft: AccessControlConfigDraft = structuredClone(mockAccessControlConfigDraft);
+let currentDraft: AccessControlConfigDraft = structuredClone(
+  mockAccessControlConfigDraft,
+);
 
-function buildMutationResult(draft: AccessControlConfigDraft, persisted: boolean, applied: boolean) {
+function buildMutationResult(
+  draft: AccessControlConfigDraft,
+  persisted: boolean,
+  applied: boolean,
+) {
   return {
     state: buildMockAccessControlState(draft),
     persisted,
@@ -58,7 +63,9 @@ export const handlers = [
       },
     }),
   ),
-  http.get(apiUrl("/api/state"), () => HttpResponse.json(buildMockAccessControlState(currentDraft))),
+  http.get(apiUrl("/api/state"), () =>
+    HttpResponse.json(buildMockAccessControlState(currentDraft)),
+  ),
   http.get(apiUrl("/api/config"), () =>
     HttpResponse.json(buildMockAccessControlConfigDocument(currentDraft)),
   ),

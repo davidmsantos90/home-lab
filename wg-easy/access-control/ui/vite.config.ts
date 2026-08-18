@@ -1,12 +1,11 @@
 import { readFile } from "node:fs/promises";
-import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
-
-import { defineConfig } from "vite";
+import path from "node:path";
 import react from "@vitejs/plugin-react";
-import tsconfigPaths from "vite-tsconfig-paths";
 import unoCSS from "unocss/vite";
+import { defineConfig } from "vite";
 import cssInjectedByJsPlugin from "vite-plugin-css-injected-by-js";
+import tsconfigPaths from "vite-tsconfig-paths";
 import { HvAppShellVitePlugin } from "@hitachivantara/app-shell-vite-plugin";
 
 const mockServiceWorkerPath = path.resolve(
@@ -68,13 +67,12 @@ export default defineConfig(async ({ mode }) => ({
         "src/pages/Home",
         "src/pages/Editor",
         "src/pages/State",
-        "src/providers/CyberpunkThemeProvider",
+        "src/providers/AppProvider",
         "src/providers/MockingProvider",
-        "src/lib/useAccessControlState",
-        "src/api/client",
-        "src/api/mock-data",
-        "src/mocks/browser",
-        "src/mocks/handlers",
+        // "src/lib/useAccessControlState",
+        // "src/api/mock-data",
+        // "src/mocks/browser",
+        // "src/mocks/handlers",
       ],
     })),
     removeBareModuleScripts(),

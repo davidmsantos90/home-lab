@@ -1,6 +1,6 @@
 /* oxlint-disable react/jsx-no-literals */
 
-import { FileText } from "@phosphor-icons/react";
+import { FileTextIcon } from "@phosphor-icons/react";
 import {
   HvCard,
   HvCardContent,
@@ -8,10 +8,10 @@ import {
   HvTypography,
 } from "@hitachivantara/uikit-react-core";
 
-import { useAccessControlState } from "../../lib/useAccessControlState";
+import { useGetAccessControlState } from "../api/apiComponents";
 
 export default function StatePage() {
-  const { state, loading, error, lastUpdated } = useAccessControlState();
+  const { data: state, isLoading, error } = useGetAccessControlState({});
 
   return (
     <div className="flex flex-col gap-6 py-6">
@@ -20,17 +20,18 @@ export default function StatePage() {
         Machine-readable snapshot returned by the access-control API.
       </HvTypography>
 
-      {(loading || error || lastUpdated) && (
+      {(isLoading || error) && (
         <HvCard>
           <HvCardHeader
             title="Snapshot status"
-            icon={<FileText size={20} weight="duotone" />}
+            icon={<FileTextIcon size={20} weight="duotone" />}
           />
           <HvCardContent className="flex flex-col gap-2">
-            {loading && <HvTypography variant="body">Loading...</HvTypography>}
-            {error && <HvTypography variant="body">{error}</HvTypography>}
-            {lastUpdated && (
-              <HvTypography variant="body">Last updated: {lastUpdated}</HvTypography>
+            {isLoading && (
+              <HvTypography variant="body">Loading...</HvTypography>
+            )}
+            {error && (
+              <HvTypography variant="body">{error.payload}</HvTypography>
             )}
           </HvCardContent>
         </HvCard>

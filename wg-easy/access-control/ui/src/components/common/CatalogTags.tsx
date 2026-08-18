@@ -10,13 +10,16 @@ interface Props<T> {
 const CatalogTags = <T,>(props: Props<T>) => {
   const { title, tags, computeTagLabel } = props;
 
-  const getTagLabel = useCallback((tag: T) => {
-    if (computeTagLabel) {
-      return computeTagLabel(tag);
-    }
-    
-    return String(tag);
-  }, [computeTagLabel]);
+  const getTagLabel = useCallback(
+    (tag: T) => {
+      if (computeTagLabel) {
+        return computeTagLabel(tag);
+      }
+
+      return String(tag);
+    },
+    [computeTagLabel],
+  );
 
   if (!tags || tags.length === 0) {
     return null;
@@ -28,10 +31,14 @@ const CatalogTags = <T,>(props: Props<T>) => {
         {title}
       </HvTypography>
       <div className="flex flex-wrap gap-2">
-        {tags.map(tag => (
+        {tags.map((tag) => (
           <HvTag
             key={getTagLabel(tag)}
-            label={<HvTypography variant="captionLabel">{getTagLabel(tag)}</HvTypography>}
+            label={
+              <HvTypography variant="captionLabel">
+                {getTagLabel(tag)}
+              </HvTypography>
+            }
             type="categorical"
             size="sm"
           />
@@ -39,6 +46,6 @@ const CatalogTags = <T,>(props: Props<T>) => {
       </div>
     </div>
   );
-}
+};
 
 export default CatalogTags;

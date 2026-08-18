@@ -1,11 +1,7 @@
-/* oxlint-disable react/jsx-no-literals */
-
 import { useMemo } from "react";
-
 import {
   ListChecksIcon,
   NetworkIcon,
-  PathIcon,
   ShieldCheckIcon,
   SirenIcon,
 } from "@phosphor-icons/react";
@@ -15,32 +11,24 @@ import {
   HvContainer,
   HvIconContainer,
   HvLoadingContainer,
-  HvTable,
-  HvTableBody,
-  HvTableCell,
-  HvTableContainer,
-  HvTableHead,
-  HvTableRow,
-  HvTag,
   HvTypography,
 } from "@hitachivantara/uikit-react-core";
 
-import { useAccessControlState } from "../lib/useAccessControlState";
-import StatCard from "../components/common/StatCard";
+import { useGetAccessControlState } from "../api/apiComponents";
+import CatalogTags from "../components/common/CatalogTags";
 import SectionCard from "../components/common/SectionCard";
+import StatCard from "../components/common/StatCard";
 import Header from "../components/home/Header";
 import RulesTable from "../components/home/RulesTable";
-import PeersTable from "../components/home/PeersTable";
-import CatalogTags from "../components/common/CatalogTags";
 
 export default function HomePage() {
-  const { state, loading, error } =
-    useAccessControlState();
+  const { data: state, isLoading, error } = useGetAccessControlState({});
 
   const summary = useMemo(() => {
     if (!state) {
       return null;
     }
+
     const aliasCatalog = state.aliases;
     const serviceEntries = Object.values(aliasCatalog.services).reduce(
       (count, entries) => count + entries.length,
@@ -59,7 +47,6 @@ export default function HomePage() {
     };
   }, [state]);
 
-
   return (
     <HvContainer className="flex flex-col gap-6 py-6">
       <Header />
@@ -73,14 +60,19 @@ export default function HomePage() {
             <div>
               <HvTypography variant="title3">Backend error</HvTypography>
               <HvTypography variant="body" className="text-slate-500">
-                {error}
+                {error.payload}
               </HvTypography>
             </div>
           </HvCardContent>
         </HvCard>
       )}
 
-      <HvLoadingContainer className="flex flex-col gap-sm" opacity={1} hidden={!loading || state != null} label="Loading access-control state">
+      <HvLoadingContainer
+        className="flex flex-col gap-sm"
+        opacity={1}
+        hidden={!isLoading || state != null}
+        label="Loading access-control state"
+      >
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
           <StatCard
             label="Peers"
@@ -112,33 +104,43 @@ export default function HomePage() {
           <SectionCard
             title="Alias catalog"
             description="Peers, hosts, named groups, and services used by the policy model."
-            icon={<HvIconContainer size="sm">
-              <ListChecksIcon weight="duotone" />
-            </HvIconContainer>}
+            icon={
+              <HvIconContainer size="sm">
+                <ListChecksIcon weight="duotone" />
+              </HvIconContainer>
+            }
           >
             <div className="flex flex-col gap-4">
               <CatalogTags
                 title={`Peers (${summary?.peers ?? 0})`}
                 tags={Object.entries(state?.peers ?? {})}
-                computeTagLabel={([_, details]) => `${details.name} → ${details.ipv4Address}`}
+                computeTagLabel={([_, details]) =>
+                  `${details.name} → ${details.ipv4Address}`
+                }
               />
 
               <CatalogTags
                 title={`Hosts (${summary?.hosts ?? 0})`}
                 tags={Object.entries(state?.aliases.hosts ?? {})}
-                computeTagLabel={([host, addresses]) => `${host} → ${addresses.join(", ")}`}
+                computeTagLabel={([host, addresses]) =>
+                  `${host} → ${addresses.join(", ")}`
+                }
               />
 
               <CatalogTags
                 title={`Groups (${summary?.groups ?? 0})`}
                 tags={Object.entries(state?.aliases.groups ?? {})}
-                computeTagLabel={([group, members]) => `${group} → ${members.join(", ")}`}
+                computeTagLabel={([group, members]) =>
+                  `${group} → ${members.join(", ")}`
+                }
               />
 
               <CatalogTags
                 title={`Services (${summary?.services ?? 0})`}
                 tags={Object.entries(state?.aliases.services ?? {})}
-                computeTagLabel={([service, entries]) => `${service} (${entries.length})`}
+                computeTagLabel={([service, entries]) =>
+                  `${service} (${entries.length})`
+                }
               />
             </div>
           </SectionCard>
@@ -147,9 +149,11 @@ export default function HomePage() {
         <SectionCard
           title="Policy rules"
           description="The compiler evaluates these logical rules into deterministic firewall state."
-          icon={<HvIconContainer size="sm">
-            <ShieldCheckIcon weight="duotone" />
-          </HvIconContainer>}
+          icon={
+            <HvIconContainer size="sm">
+              <ShieldCheckIcon weight="duotone" />
+            </HvIconContainer>
+          }
         >
           <RulesTable />
         </SectionCard>
@@ -157,9 +161,11 @@ export default function HomePage() {
         <SectionCard
           title="Compiled preview"
           description="These are the generated iptables statements and selector sets the compiler will apply."
-          icon={<HvIconContainer size="sm">
-            <NetworkIcon weight="duotone" />
-          </HvIconContainer>}
+          icon={
+            <HvIconContainer size="sm">
+              <NetworkIcon weight="duotone" />
+            </HvIconContainer>
+          }
         >
           <div className="flex flex-col gap-4">
             {/* <div className="flex flex-col gap-2">
@@ -186,12 +192,17 @@ export default function HomePage() {
             </div> */}
 
             <div className="flex flex-col gap-2">
-              <HvTypography variant="body" className="uppercase tracking-wide text-xs">
+              <HvTypography
+                variant="body"
+                className="uppercase tracking-wide text-xs"
+              >
                 iptables preview
               </HvTypography>
               <div className="overflow-x-auto rounded-md b b-neutral p-4">
                 <pre className="m-0 whitespace-pre-wrap text-md leading-6">
-                  {(state?.compiled.iptables ?? []).map((command) => command.join(" ")).join("\n")}
+                  {(state?.compiled.iptables ?? [])
+                    .map((command) => command.join(" "))
+                    .join("\n")}
                 </pre>
               </div>
             </div>

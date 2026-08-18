@@ -1,7 +1,9 @@
-import type { AppShellVitePluginOptions } from "@hitachivantara/app-shell-vite-plugin";
 import type { HvAppShellConfig } from "@hitachivantara/app-shell-shared";
+import type { AppShellVitePluginOptions } from "@hitachivantara/app-shell-vite-plugin";
 
-export default function appShellConfig(_opts: AppShellVitePluginOptions): HvAppShellConfig {
+export default function appShellConfig(
+  _opts: AppShellVitePluginOptions,
+): HvAppShellConfig {
   return {
     name: "wg-easy access control",
     logo: null,
@@ -10,12 +12,8 @@ export default function appShellConfig(_opts: AppShellVitePluginOptions): HvAppS
       "$app/pages/Home.js": "/src/pages/Home",
       "$app/pages/Editor.js": "/src/pages/Editor",
       "$app/pages/State.js": "/src/pages/State",
-      "$app/providers/CyberpunkThemeProvider.js": "/src/providers/CyberpunkThemeProvider",
+      "$app/providers/AppProvider.js": "/src/providers/AppProvider",
       "$app/providers/MockingProvider.js": "/src/providers/MockingProvider",
-      "$app/api/client.js": "/src/api/client",
-      "$app/api/mock-data.js": "/src/api/mock-data",
-      "$app/mocks/browser.js": "/src/mocks/browser",
-      "$app/mocks/handlers.js": "/src/mocks/handlers",
     },
     navigationMode: "ONLY_LEFT",
     translationsBaseUrl: false,
@@ -56,7 +54,7 @@ export default function appShellConfig(_opts: AppShellVitePluginOptions): HvAppS
     ],
     providers: [
       {
-        bundle: "$app/providers/CyberpunkThemeProvider.js",
+        bundle: "$app/providers/AppProvider.js",
       },
       {
         bundle: "$app/providers/MockingProvider.js",

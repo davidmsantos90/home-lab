@@ -1,8 +1,11 @@
 /* oxlint-disable react/jsx-no-literals */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-
-import { NotePencilIcon, ShieldCheckIcon, SirenIcon } from "@phosphor-icons/react";
+import { useCallback, useMemo, useState } from "react";
+import {
+  NotePencilIcon,
+  ShieldCheckIcon,
+  SirenIcon,
+} from "@phosphor-icons/react";
 import {
   HvButton,
   HvCard,
@@ -17,15 +20,18 @@ import {
 } from "@hitachivantara/uikit-react-core";
 
 import {
-  ACCESS_CONTROL_API_URL,
-  applyAccessControlConfig,
-  getAccessControlConfig,
-  previewAccessControlConfig,
-  putAccessControlConfig,
-  type AccessControlConfigDocument,
-  type AccessControlConfigDraft,
-  type AccessControlMutationResult,
-} from "../api/client";
+  useApplyAccessControlConfig,
+  useGetAccessControlConfig,
+  usePreviewAccessControlConfig,
+  usePutAccessControlConfig,
+} from "../api/apiComponents";
+import type {
+  AccessControlConfigDocument,
+  AccessControlConfigDraft,
+  AccessControlMutationResult,
+  AccessControlState,
+} from "../api/apiSchemas";
+import { ACCESS_CONTROL_API_URL } from "../lib/queryClient";
 
 function prettyJson(value: unknown) {
   return JSON.stringify(value, null, 2);
@@ -38,7 +44,11 @@ function getErrorMessage(error: unknown) {
   return String(error);
 }
 
-function parseJsonText<TValue>(label: string, value: string, validator: (input: unknown) => boolean) {
+function parseJsonText<TValue>(
+  label: string,
+  value: string,
+  validator: (input: unknown) => boolean,
+) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
@@ -67,32 +77,51 @@ function isConfigDraft(value: unknown): value is AccessControlConfigDraft {
   );
 }
 
-function CompiledPreview({ result }: { result: AccessControlMutationResult["state"] | null }) {
+function CompiledPreview({
+  result,
+}: Readonly<{
+  result: AccessControlState | null;
+}>) {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid gap-4 md:grid-cols-3">
         <HvCard>
           <HvCardContent className="flex flex-col gap-2">
-            <HvTypography variant="body" className="uppercase tracking-wide text-xs text-slate-500">
+            <HvTypography
+              variant="body"
+              className="uppercase tracking-wide text-xs text-slate-500"
+            >
               Rules
             </HvTypography>
-            <HvTypography variant="title2">{result?.rules.length ?? 0}</HvTypography>
+            <HvTypography variant="title2">
+              {result?.rules.length ?? 0}
+            </HvTypography>
           </HvCardContent>
         </HvCard>
         <HvCard>
           <HvCardContent className="flex flex-col gap-2">
-            <HvTypography variant="body" className="uppercase tracking-wide text-xs text-slate-500">
+            <HvTypography
+              variant="body"
+              className="uppercase tracking-wide text-xs text-slate-500"
+            >
               Compiled iptables
             </HvTypography>
-            <HvTypography variant="title2">{result?.compiled.iptables.length ?? 0}</HvTypography>
+            <HvTypography variant="title2">
+              {result?.compiled.iptables.length ?? 0}
+            </HvTypography>
           </HvCardContent>
         </HvCard>
         <HvCard>
           <HvCardContent className="flex flex-col gap-2">
-            <HvTypography variant="body" className="uppercase tracking-wide text-xs text-slate-500">
+            <HvTypography
+              variant="body"
+              className="uppercase tracking-wide text-xs text-slate-500"
+            >
               Compiled ipsets
             </HvTypography>
-            <HvTypography variant="title2">{result?.compiled.ipsets.length ?? 0}</HvTypography>
+            <HvTypography variant="title2">
+              {result?.compiled.ipsets.length ?? 0}
+            </HvTypography>
           </HvCardContent>
         </HvCard>
       </div>
@@ -110,7 +139,10 @@ function CompiledPreview({ result }: { result: AccessControlMutationResult["stat
           />
           <HvCardContent className="flex flex-col gap-3">
             {(result?.compiled.ipsets ?? []).map((entry) => (
-              <div key={entry.name} className="rounded-md border border-slate-200 p-3">
+              <div
+                key={entry.name}
+                className="rounded-md border border-slate-200 p-3"
+              >
                 <HvTypography variant="title4">{entry.name}</HvTypography>
                 <HvTypography variant="body" className="text-slate-500">
                   {entry.members.join(", ")}
@@ -138,7 +170,9 @@ function CompiledPreview({ result }: { result: AccessControlMutationResult["stat
           <HvCardContent>
             <div className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-4">
               <pre className="m-0 whitespace-pre-wrap text-sm leading-6">
-                {(result?.compiled.iptables ?? []).map((command) => command.join(" ")).join("\n")}
+                {(result?.compiled.iptables ?? [])
+                  .map((command) => command.join(" "))
+                  .join("\n")}
               </pre>
             </div>
           </HvCardContent>
@@ -150,47 +184,47 @@ function CompiledPreview({ result }: { result: AccessControlMutationResult["stat
 
 export default function EditorPage() {
   const { enqueueSnackbar } = useHvSnackbar();
-  const [config, setConfig] = useState<AccessControlConfigDocument | null>(null);
+  const { data: config, isLoading } = useGetAccessControlConfig({});
+  const { mutateAsync: updateConfig } = usePutAccessControlConfig();
+  const { mutateAsync: previewConfig } = usePreviewAccessControlConfig();
+  const { mutateAsync: applyConfig } = useApplyAccessControlConfig();
+
   const [aliasesText, setAliasesText] = useState("");
   const [rulesText, setRulesText] = useState("");
   const [savedAliasesText, setSavedAliasesText] = useState("");
   const [savedRulesText, setSavedRulesText] = useState("");
   const [aliasesError, setAliasesError] = useState<string | null>(null);
   const [rulesError, setRulesError] = useState<string | null>(null);
-  const [previewState, setPreviewState] = useState<AccessControlMutationResult["state"] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [busyAction, setBusyAction] = useState<"preview" | "save" | "apply" | null>(null);
+  const [previewState, setPreviewState] = useState<AccessControlState | null>(
+    null,
+  );
+  const [busyAction, setBusyAction] = useState<
+    "preview" | "save" | "apply" | null
+  >(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const applyLoadedConfig = useCallback((nextConfig: AccessControlConfigDocument) => {
-    const nextAliasesText = prettyJson(nextConfig.aliases);
-    const nextRulesText = prettyJson(nextConfig.rules);
-    setConfig(nextConfig);
-    setAliasesText(nextAliasesText);
-    setRulesText(nextRulesText);
-    setSavedAliasesText(nextAliasesText);
-    setSavedRulesText(nextRulesText);
-    setAliasesError(null);
-    setRulesError(null);
-  }, []);
+  const applyLoadedConfig = useCallback(
+    (nextConfig: AccessControlConfigDocument) => {
+      const nextAliasesText = prettyJson(nextConfig.aliases);
+      const nextRulesText = prettyJson(nextConfig.rules);
+      setAliasesText(nextAliasesText);
+      setRulesText(nextRulesText);
+      setSavedAliasesText(nextAliasesText);
+      setSavedRulesText(nextRulesText);
+      setAliasesError(null);
+      setRulesError(null);
+    },
+    [],
+  );
 
-  const loadConfig = useCallback(async () => {
-    setLoading(true);
-    try {
-      const nextConfig = await getAccessControlConfig();
-      applyLoadedConfig(nextConfig);
+  // Initialize form when config loads
+  useMemo(() => {
+    if (config) {
+      applyLoadedConfig(config);
       setPreviewState(null);
       setLoadError(null);
-    } catch (error) {
-      setLoadError(getErrorMessage(error));
-    } finally {
-      setLoading(false);
     }
-  }, [applyLoadedConfig]);
-
-  useEffect(() => {
-    loadConfig();
-  }, [loadConfig]);
+  }, [config, applyLoadedConfig]);
 
   const isDirty = useMemo(
     () => aliasesText !== savedAliasesText || rulesText !== savedRulesText,
@@ -221,7 +255,9 @@ export default function EditorPage() {
   const runDraftAction = useCallback(
     async (
       action: "preview" | "save" | "apply",
-      request: (draft: AccessControlConfigDraft) => Promise<AccessControlMutationResult>,
+      mutationFn: (variables: {
+        body: AccessControlConfigDraft;
+      }) => Promise<AccessControlMutationResult>,
       successMessage: string,
     ) => {
       setBusyAction(action);
@@ -245,13 +281,12 @@ export default function EditorPage() {
       }
 
       try {
-        const result = await request(draft);
+        const result = await mutationFn({ body: draft });
         setPreviewState(result.state);
         if (action !== "preview") {
-          const nextConfig = await getAccessControlConfig();
-          applyLoadedConfig(nextConfig);
+          // Config will be refetched automatically by useGetApiConfig
+          setLoadError(null);
         }
-        setLoadError(null);
         enqueueSnackbar(successMessage, {
           variant: "success",
         });
@@ -265,7 +300,7 @@ export default function EditorPage() {
         setBusyAction(null);
       }
     },
-    [applyLoadedConfig, buildDraft, enqueueSnackbar],
+    [buildDraft, enqueueSnackbar],
   );
 
   return (
@@ -279,19 +314,43 @@ export default function EditorPage() {
               </HvIconContainer>
             </div>
             <div className="min-w-0">
-              <HvTypography variant="title1">Access-control editor</HvTypography>
+              <HvTypography variant="title1">
+                Access-control editor
+              </HvTypography>
               <HvTypography variant="body" className="text-slate-500">
-                Edit aliases and policy JSON, preview the compiled firewall state, then save or apply the draft through the OpenAPI-backed API.
+                Edit aliases and policy JSON, preview the compiled firewall
+                state, then save or apply the draft through the OpenAPI-backed
+                API.
               </HvTypography>
               <div className="mt-3 flex flex-wrap gap-2">
-                <HvTag label={`API ${ACCESS_CONTROL_API_URL}`} type="categorical" size="sm" />
                 <HvTag
-                  label={isDirty ? "draft has changes" : "draft matches persisted config"}
+                  label={`API ${ACCESS_CONTROL_API_URL}`}
+                  type="categorical"
+                  size="sm"
+                />
+                <HvTag
+                  label={
+                    isDirty
+                      ? "draft has changes"
+                      : "draft matches persisted config"
+                  }
                   type={isDirty ? "categorical" : "semantic"}
                   size="sm"
                 />
-                {config && <HvTag label={config.policyPath} type="categorical" size="sm" />}
-                {config && <HvTag label={config.aliasesPath} type="categorical" size="sm" />}
+                {config && (
+                  <HvTag
+                    label={config.policyPath}
+                    type="categorical"
+                    size="sm"
+                  />
+                )}
+                {config && (
+                  <HvTag
+                    label={config.aliasesPath}
+                    type="categorical"
+                    size="sm"
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -299,14 +358,17 @@ export default function EditorPage() {
           <div className="flex flex-wrap gap-2">
             <HvButton
               variant="primaryGhost"
-              disabled={loading || busyAction !== null}
-              onClick={loadConfig}
+              disabled={isLoading || busyAction !== null}
+              onClick={() => {
+                // Refetch config
+                window.location.reload();
+              }}
             >
               Reload persisted config
             </HvButton>
             <HvButton
               variant="primaryGhost"
-              disabled={loading || busyAction !== null || !config}
+              disabled={isLoading || busyAction !== null || !config}
               onClick={() => {
                 if (!config) {
                   return;
@@ -320,27 +382,35 @@ export default function EditorPage() {
             </HvButton>
             <HvButton
               variant="primaryGhost"
-              disabled={loading || busyAction !== null}
+              disabled={isLoading || busyAction !== null}
               onClick={() =>
-                runDraftAction("preview", previewAccessControlConfig, "Compiled preview updated.")
+                runDraftAction(
+                  "preview",
+                  previewConfig,
+                  "Compiled preview updated.",
+                )
               }
             >
               {busyAction === "preview" ? "Previewing..." : "Preview"}
             </HvButton>
             <HvButton
               variant="primaryGhost"
-              disabled={loading || busyAction !== null}
+              disabled={isLoading || busyAction !== null}
               onClick={() =>
-                runDraftAction("save", putAccessControlConfig, "Draft saved to disk.")
+                runDraftAction("save", updateConfig, "Draft saved to disk.")
               }
             >
               {busyAction === "save" ? "Saving..." : "Save"}
             </HvButton>
             <HvButton
               variant="primary"
-              disabled={loading || busyAction !== null}
+              disabled={isLoading || busyAction !== null}
               onClick={() =>
-                runDraftAction("apply", applyAccessControlConfig, "Draft applied to the firewall.")
+                runDraftAction(
+                  "apply",
+                  applyConfig,
+                  "Draft applied to the firewall.",
+                )
               }
             >
               {busyAction === "apply" ? "Applying..." : "Apply"}
@@ -365,7 +435,7 @@ export default function EditorPage() {
         </HvCard>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <HvCard>
           <HvCardContent className="flex items-center justify-center py-10">
             <HvLoading label="Loading persisted access-control config" />
@@ -450,7 +520,8 @@ export default function EditorPage() {
                 <CompiledPreview result={previewState} />
               ) : (
                 <HvTypography variant="body" className="text-slate-500">
-                  Run Preview, Save, or Apply to inspect the compiled result for the current draft.
+                  Run Preview, Save, or Apply to inspect the compiled result for
+                  the current draft.
                 </HvTypography>
               )}
             </HvCardContent>

@@ -1,8 +1,10 @@
-import { useEffect, type PropsWithChildren } from "react";
+import { FC, useEffect, type PropsWithChildren } from "react";
+import { HvProvider } from "@hitachivantara/uikit-react-core";
 
 import { startAccessControlMocks } from "../mocks/browser";
+import cyberpunkTheme from "../themes/cyberpunk";
 
-export function MockingProvider({ children }: PropsWithChildren) {
+const MockingProvider: FC<PropsWithChildren> = ({ children }) => {
   useEffect(() => {
     if (!import.meta.env.DEV) {
       return;
@@ -13,7 +15,16 @@ export function MockingProvider({ children }: PropsWithChildren) {
     });
   }, []);
 
-  return children;
-}
+  return (
+    <HvProvider
+      colorMode="dark"
+      cssBaseline="scoped"
+      cssTheme="scoped"
+      theme={cyberpunkTheme}
+    >
+      {children}
+    </HvProvider>
+  );
+};
 
 export default MockingProvider;

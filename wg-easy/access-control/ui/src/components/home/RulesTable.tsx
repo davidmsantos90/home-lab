@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-
 import {
   HvButton,
   HvDialog,
@@ -17,8 +16,11 @@ import {
   useHvSnackbar,
 } from "@hitachivantara/uikit-react-core";
 
-import { putAccessControlConfig, type AccessControlRule } from "../../api/client";
-import { useAccessControlState } from "../../lib/useAccessControlState";
+import {
+  useGetAccessControlState,
+  usePutAccessControlConfig,
+} from "../../api/apiComponents";
+import type { AccessControlRule } from "../../api/apiSchemas";
 
 type RuleFormState = {
   source: string;
@@ -97,7 +99,8 @@ function toRule(form: RuleFormState): AccessControlRule {
 }
 
 const RulesTable = () => {
-  const { state, reload } = useAccessControlState();
+  const { data: state } = useGetAccessControlState({});
+  const { mutateAsync: updateConfig } = usePutAccessControlConfig();
   const { enqueueSnackbar } = useHvSnackbar();
   const [mode, setMode] = useState<"add" | "edit" | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -141,15 +144,21 @@ const RulesTable = () => {
         nextRules[editingIndex] = nextRule;
       }
 
-      await putAccessControlConfig({
-        aliases: state.aliases,
-        rules: nextRules,
+      await updateConfig({
+        body: {
+          aliases: state.aliases,
+          rules: nextRules,
+        },
       });
-      enqueueSnackbar(mode === "add" ? "Rule added." : "Rule updated.", { variant: "success" });
+      enqueueSnackbar(mode === "add" ? "Rule added." : "Rule updated.", {
+        variant: "success",
+      });
       closeDialog();
-      reload();
+      // Query will be automatically refetched by useGetApiState
     } catch (error) {
-      enqueueSnackbar(error instanceof Error ? error.message : String(error), { variant: "error" });
+      enqueueSnackbar(error instanceof Error ? error.message : String(error), {
+        variant: "error",
+      });
     } finally {
       setSaving(false);
     }
@@ -158,7 +167,11 @@ const RulesTable = () => {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-end">
-        <HvButton variant="primaryGhost" disabled={!state || saving} onClick={openAdd}>
+        <HvButton
+          variant="primaryGhost"
+          disabled={!state || saving}
+          onClick={openAdd}
+        >
           Add rule
         </HvButton>
       </div>
@@ -178,13 +191,21 @@ const RulesTable = () => {
           <HvTableBody>
             {rules.map((rule, index) => (
               <HvTableRow key={`${index}-${rule.action}`}>
-                <HvTableCell>{formatSelector(rule.source ?? rule.source_group)}</HvTableCell>
-                <HvTableCell>{formatSelector(rule.destination ?? rule.destination_group)}</HvTableCell>
+                <HvTableCell>
+                  {formatSelector(rule.source ?? rule.source_group)}
+                </HvTableCell>
+                <HvTableCell>
+                  {formatSelector(rule.destination ?? rule.destination_group)}
+                </HvTableCell>
                 <HvTableCell>{formatService(rule)}</HvTableCell>
                 <HvTableCell align="center">
                   <HvTag
                     label={rule.action.toUpperCase()}
-                    color={rule.action === "allow" ? "positiveSubtle" : "negativeSubtle"}
+                    color={
+                      rule.action === "allow"
+                        ? "positiveSubtle"
+                        : "negativeSubtle"
+                    }
                     size="sm"
                   />
                 </HvTableCell>
@@ -211,8 +232,15 @@ const RulesTable = () => {
         </HvTable>
       </HvTableContainer>
 
-      <HvDialog open={mode != null} onClose={closeDialog} fullWidth maxWidth="md">
-        <HvDialogTitle>{mode === "add" ? "Add rule" : "Edit rule"}</HvDialogTitle>
+      <HvDialog
+        open={mode != null}
+        onClose={closeDialog}
+        fullWidth
+        maxWidth="md"
+      >
+        <HvDialogTitle>
+          {mode === "add" ? "Add rule" : "Edit rule"}
+        </HvDialogTitle>
         <HvDialogContent className="grid gap-3 sm:grid-cols-2">
           <HvInput
             label="Source"
@@ -274,11 +302,19 @@ const RulesTable = () => {
           </div>
         </HvDialogContent>
         <HvDialogActions>
-          <HvButton variant="secondaryGhost" disabled={saving} onClick={closeDialog}>
+          <HvButton
+            variant="secondaryGhost"
+            disabled={saving}
+            onClick={closeDialog}
+          >
             Cancel
           </HvButton>
           <HvButton variant="primary" disabled={saving} onClick={save}>
-            {saving ? "Saving..." : mode === "add" ? "Add rule" : "Save changes"}
+            {saving
+              ? "Saving..."
+              : mode === "add"
+                ? "Add rule"
+                : "Save changes"}
           </HvButton>
         </HvDialogActions>
       </HvDialog>

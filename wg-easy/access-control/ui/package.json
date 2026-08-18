@@ -26,7 +26,8 @@
     "lint": "oxlint --fix",
     "format": "prettier --write .",
     "test": "vitest",
-    "codegen": "openapi-typescript ../openapi.json -o src/api/openapi-types.ts"
+    "codegen": "npm run clean:api && openapi-codegen gen api",
+    "clean:api": "del 'src/api/**' '!src/api/apiFetcher.ts' '!src/api/apiExtras.ts'"
   },
   "prettier": "@hitachivantara/uikit-config/prettier",
   "dependencies": {
@@ -37,15 +38,17 @@
     "@hitachivantara/app-shell-vite-plugin": "^2.5.2",
     "@hitachivantara/uikit-react-core": "^6.0.0",
     "@phosphor-icons/react": "^2.1.10",
+    "@tanstack/react-query": "^5.36.0",
     "msw": "^2.15.0",
-    "openapi-fetch": "^0.17.0",
-    "openapi-typescript": "^7.13.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@hitachivantara/uikit-config": "^0.6.1",
     "@hitachivantara/uikit-uno-preset": "^1.0.0",
+    "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
+    "@openapi-codegen/cli": "^3.1.0",
+    "@openapi-codegen/typescript": "^11.1.0",
     "@testing-library/jest-dom": "^6.1.5",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.4.3",
@@ -53,6 +56,7 @@
     "@types/react-dom": "^18.0.11",
     "@vitejs/plugin-react": "^5.0.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "del-cli": "^5.0.0",
     "happy-dom": "^15.11.7",
     "oxlint": "^1.9.0",
     "prettier": "^3.1.1",

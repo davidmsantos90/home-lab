@@ -181,9 +181,10 @@ const cyberpunkTheme = mergeTheme(pentaho, {
           "&.HvIsFocused": {
             backgroundColor: theme.alpha(teal[400], 0.14),
           },
-          "&.HvListItem-interactive:not(.HvListItem-disabled):not(.HvListItem-selected):hover": {
-            backgroundColor: theme.alpha(teal[400], 0.14),
-          },
+          "&.HvListItem-interactive:not(.HvListItem-disabled):not(.HvListItem-selected):hover":
+            {
+              backgroundColor: theme.alpha(teal[400], 0.14),
+            },
         },
         listItemSelected: {
           background: `linear-gradient(90deg, ${theme.alpha(teal[400], 0.22)}, ${theme.alpha(
@@ -214,11 +215,12 @@ const cyberpunkTheme = mergeTheme(pentaho, {
               0.12,
             )}`,
           },
-          ":not(.HvVerticalNavigationTreeViewItem-disabled>&):not(.HvVerticalNavigationTreeViewItem-selected>&)": {
-            "&:hover, &:focus-visible, &.focus-visible": {
-              background: theme.alpha(teal[400], 0.14),
+          ":not(.HvVerticalNavigationTreeViewItem-disabled>&):not(.HvVerticalNavigationTreeViewItem-selected>&)":
+            {
+              "&:hover, &:focus-visible, &.focus-visible": {
+                background: theme.alpha(teal[400], 0.14),
+              },
             },
-          },
           ".HvVerticalNavigationTreeViewItem-focused>&": {
             background: theme.alpha(teal[400], 0.14),
           },

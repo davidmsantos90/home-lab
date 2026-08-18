@@ -5,7 +5,7 @@ import type {
   AccessControlConfigDraft,
   AccessControlRule,
   AccessControlState,
-} from "./client";
+} from "../api/apiSchemas";
 
 const MOCK_POLICY_PATH = "/etc/wg-easy/access-control/policies.json";
 const MOCK_ALIASES_PATH = "/etc/wg-easy/access-control/aliases.json";
@@ -87,47 +87,79 @@ function dedupe(values: string[]) {
   return [...new Set(values)];
 }
 
-function resolveGroupMembers(groupNames: string | string[] | undefined, aliases: AccessControlAliasCatalog) {
+function resolveGroupMembers(
+  groupNames: string | string[] | undefined,
+  aliases: AccessControlAliasCatalog,
+) {
   return dedupe(
-    toArray(groupNames).flatMap((groupName) => aliases.groups[groupName] ?? [groupName]),
+    toArray(groupNames).flatMap(
+      (groupName) => aliases.groups[groupName] ?? [groupName],
+    ),
   );
 }
 
-function resolveSources(rule: AccessControlRule, aliases: AccessControlAliasCatalog) {
+function resolveSources(
+  rule: AccessControlRule,
+  aliases: AccessControlAliasCatalog,
+) {
   if (rule.source_group) {
     return dedupe(
-      resolveGroupMembers(rule.source_group, aliases).map((entry) => mockPeerMap[entry] ?? entry),
+      resolveGroupMembers(rule.source_group, aliases).map(
+        (entry) => mockPeerMap[entry] ?? entry,
+      ),
     );
   }
-  return dedupe(toArray(rule.source).map((entry) => mockPeerMap[entry] ?? entry));
+  return dedupe(
+    toArray(rule.source).map((entry) => mockPeerMap[entry] ?? entry),
+  );
 }
 
-function resolveDestinations(rule: AccessControlRule, aliases: AccessControlAliasCatalog) {
+function resolveDestinations(
+  rule: AccessControlRule,
+  aliases: AccessControlAliasCatalog,
+) {
   const entries = rule.destination_group
     ? resolveGroupMembers(rule.destination_group, aliases)
     : toArray(rule.destination);
   return dedupe(
-    entries.flatMap((entry) => aliases.hosts[entry] ?? [mockPeerMap[entry] ?? entry]),
+    entries.flatMap(
+      (entry) => aliases.hosts[entry] ?? [mockPeerMap[entry] ?? entry],
+    ),
   );
 }
 
-function resolveServices(rule: AccessControlRule, aliases: AccessControlAliasCatalog) {
+function resolveServices(
+  rule: AccessControlRule,
+  aliases: AccessControlAliasCatalog,
+) {
   if (!rule.service) {
     return [{ protocol: rule.protocol, port: rule.port }];
   }
   return toArray(rule.service).flatMap((serviceName) => {
     const entries = aliases.services[serviceName];
-    return entries && entries.length > 0 ? entries : [{ protocol: rule.protocol, port: rule.port }];
+    return entries && entries.length > 0
+      ? entries
+      : [{ protocol: rule.protocol, port: rule.port }];
   });
 }
 
-function buildCompiledState(aliases: AccessControlAliasCatalog, rules: AccessControlRule[]): AccessControlCompiledState {
+function buildCompiledState(
+  aliases: AccessControlAliasCatalog,
+  rules: AccessControlRule[],
+): AccessControlCompiledState {
   const iptables = rules.flatMap((rule) => {
     const action = rule.action.toLowerCase() === "deny" ? "DROP" : "ACCEPT";
     return resolveSources(rule, aliases).flatMap((source) =>
       resolveDestinations(rule, aliases).flatMap((destination) =>
         resolveServices(rule, aliases).map((serviceEntry) => {
-          const command = ["-A", "WG_ACCESS_CONTROL", "-s", source, "-d", destination];
+          const command = [
+            "-A",
+            "WG_ACCESS_CONTROL",
+            "-s",
+            source,
+            "-d",
+            destination,
+          ];
           if (serviceEntry.protocol) {
             command.push("-p", serviceEntry.protocol);
           }
@@ -154,7 +186,9 @@ function buildCompiledState(aliases: AccessControlAliasCatalog, rules: AccessCon
   };
 }
 
-export function buildMockAccessControlState(draft: AccessControlConfigDraft): AccessControlState {
+export function buildMockAccessControlState(
+  draft: AccessControlConfigDraft,
+): AccessControlState {
   return {
     backend: "iptables",
     policyPath: MOCK_POLICY_PATH,
@@ -178,4 +212,6 @@ export function buildMockAccessControlConfigDocument(
   };
 }
 
-export const mockAccessControlState = buildMockAccessControlState(mockAccessControlConfigDraft);
+export const mockAccessControlState = buildMockAccessControlState(
+  mockAccessControlConfigDraft,
+);
