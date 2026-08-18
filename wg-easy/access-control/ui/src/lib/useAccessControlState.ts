@@ -41,17 +41,7 @@ export function useAccessControlState() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    load(controller.signal);
-
-    const timer = window.setInterval(() => {
-      load();
-    }, REFRESH_INTERVAL_MS);
-
-    return () => {
-      controller.abort();
-      window.clearInterval(timer);
-    };
+    load();
   }, [load]);
 
   return useMemo(

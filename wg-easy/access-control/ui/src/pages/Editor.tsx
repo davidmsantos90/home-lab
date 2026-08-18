@@ -384,8 +384,9 @@ export default function EditorPage() {
                   </HvIconContainer>
                 }
               />
-              <HvCardContent>
+              <HvCardContent className="flex flex-auto">
                 <HvTextArea
+                  className="flex-auto"
                   value={aliasesText}
                   rows={24}
                   resizable
@@ -413,8 +414,9 @@ export default function EditorPage() {
                   </HvIconContainer>
                 }
               />
-              <HvCardContent>
+              <HvCardContent className="flex flex-auto">
                 <HvTextArea
+                  className="flex-auto"
                   value={rulesText}
                   rows={24}
                   resizable

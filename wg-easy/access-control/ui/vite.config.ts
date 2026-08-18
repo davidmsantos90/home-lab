@@ -68,6 +68,7 @@ export default defineConfig(async ({ mode }) => ({
         "src/pages/Home",
         "src/pages/Editor",
         "src/pages/State",
+        "src/providers/CyberpunkThemeProvider",
         "src/providers/MockingProvider",
         "src/lib/useAccessControlState",
         "src/api/client",

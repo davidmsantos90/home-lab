@@ -10,6 +10,7 @@ export default function appShellConfig(_opts: AppShellVitePluginOptions): HvAppS
       "$app/pages/Home.js": "/src/pages/Home",
       "$app/pages/Editor.js": "/src/pages/Editor",
       "$app/pages/State.js": "/src/pages/State",
+      "$app/providers/CyberpunkThemeProvider.js": "/src/providers/CyberpunkThemeProvider",
       "$app/providers/MockingProvider.js": "/src/providers/MockingProvider",
       "$app/api/client.js": "/src/api/client",
       "$app/api/mock-data.js": "/src/api/mock-data",
@@ -19,7 +20,7 @@ export default function appShellConfig(_opts: AppShellVitePluginOptions): HvAppS
     navigationMode: "ONLY_LEFT",
     translationsBaseUrl: false,
     theming: {
-      theme: "pentaho",
+      colorMode: "dark",
     },
     mainPanel: {
       disableGutters: true,
@@ -54,6 +55,9 @@ export default function appShellConfig(_opts: AppShellVitePluginOptions): HvAppS
       },
     ],
     providers: [
+      {
+        bundle: "$app/providers/CyberpunkThemeProvider.js",
+      },
       {
         bundle: "$app/providers/MockingProvider.js",
       },
