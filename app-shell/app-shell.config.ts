@@ -9,14 +9,18 @@ export default function appShellConfig(_opts: AppShellVitePluginOptions): HvAppS
       "$app/": "/",
       "$app/pages/Home.js": "/src/pages/Home",
       "$app/pages/Apps.js": "/src/pages/Apps",
-      "$app/themes/cyberpunk.js": "/src/themes/cyberpunk",
+      "$app/providers/CyberpunkThemeProvider.js": "/src/providers/CyberpunkThemeProvider",
     },
     navigationMode: "ONLY_LEFT",
     translationsBaseUrl: false,
     theming: {
-      theme: "$app/themes/cyberpunk.js",
       colorMode: "dark",
     },
+    providers: [
+      {
+        bundle: "$app/providers/CyberpunkThemeProvider.js",
+      },
+    ],
     mainPanel: {
       disableGutters: true,
       maxWidth: false,

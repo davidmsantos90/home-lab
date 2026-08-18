@@ -22,6 +22,7 @@ export default defineConfig(async ({ mode }) => ({
       modules: [
         "src/pages/Home",
         "src/pages/Apps",
+        "src/providers/CyberpunkThemeProvider",
       ],
     })),
   ],

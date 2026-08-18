@@ -1,5 +1,5 @@
 {
-  "name": "home-lab-app-shell",
+  "name": "@home-lab/app-shell",
   "private": true,
   "type": "module",
   "files": [
