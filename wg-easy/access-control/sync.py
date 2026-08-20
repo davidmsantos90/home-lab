@@ -127,10 +127,31 @@ def load_json_array(path: pathlib.Path) -> list:
 def normalize_policy_rules(rules: list) -> list[dict]:
     if not isinstance(rules, list):
         raise SystemExit("Policy file must contain a JSON array")
+    normalized_rules: list[dict] = []
     for index, rule in enumerate(rules):
         if not isinstance(rule, dict):
             raise SystemExit(f"Policy rule at index {index} must be a JSON object")
-    return rules
+        normalized_rule = dict(rule)
+        # Temporary backward compatibility for older clients sending scalar selectors.
+        # Remove this once all callers send array-only source/destination/service fields.
+        for key in ("source", "destination", "service"):
+            value = normalized_rule.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                normalized_rule[key] = [value]
+                continue
+            if isinstance(value, list):
+                normalized_rule[key] = normalize_selector_list(
+                    value,
+                    f"Policy rule at index {index} field {key}",
+                )
+                continue
+            raise SystemExit(
+                f"Policy rule at index {index} field {key} must be a string array"
+            )
+        normalized_rules.append(normalized_rule)
+    return normalized_rules
 
 
 def api_request(opener: urllib.request.OpenerDirector, api_url: str, method: str, path: str, payload: dict | None = None):
@@ -515,15 +536,11 @@ def rule_to_iptables(
     if action not in {"allow", "deny", "drop", "reject"}:
         raise SystemExit(f"Unsupported action: {rule.get('action')!r}")
 
-    if "source" in rule and "source_group" in rule:
-        raise SystemExit("Use either source or source_group, not both")
-    if "destination" in rule and "destination_group" in rule:
-        raise SystemExit("Use either destination or destination_group, not both")
     if "service" in rule and (rule.get("protocol") is not None or rule.get("port") is not None):
         raise SystemExit("Use either service or protocol/port, not both")
 
-    sources = selector_values(rule.get("source") or rule.get("source_group"), peer_map, groups, hosts)
-    destinations = selector_values(rule.get("destination") or rule.get("destination_group"), peer_map, groups, hosts)
+    sources = selector_values(rule.get("source"), peer_map, groups, hosts)
+    destinations = selector_values(rule.get("destination"), peer_map, groups, hosts)
 
     service_specs = service_selector_values(rule.get("service"), services)
     if service_specs:
@@ -744,6 +761,308 @@ def load_access_control_inventory(policy_path: pathlib.Path, aliases_path: pathl
     }
 
 
+def load_access_control_policy_document(policy_path: pathlib.Path) -> list[dict]:
+    effective_policy_path = resolve_effective_config_path(policy_path)
+    return load_policy(effective_policy_path)
+
+
+def save_access_control_policy_document(policy_path: pathlib.Path, rules: list[dict]) -> None:
+    writable_policy_path = resolve_writable_config_path(policy_path)
+    write_json_document(writable_policy_path, rules)
+
+
+def load_access_control_aliases_document(aliases_path: pathlib.Path) -> dict[str, dict]:
+    effective_aliases_path = resolve_effective_config_path(aliases_path)
+    return load_json_file(effective_aliases_path)
+
+
+def save_access_control_aliases_document(aliases_path: pathlib.Path, aliases: dict[str, dict]) -> None:
+    writable_aliases_path = resolve_writable_config_path(aliases_path)
+    write_json_document(writable_aliases_path, aliases, sort_keys=True)
+
+
+def peer_item_from_state(peer: dict) -> dict:
+    return {
+        "name": peer["name"],
+        "ipv4Address": peer["ipv4Address"],
+        "raw": peer["raw"],
+    }
+
+
+def list_access_control_peers(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> list[dict]:
+    state = load_access_control_state(policy_path, aliases_path)
+    return [peer_item_from_state(peer) for peer in state["peers"]]
+
+
+def get_access_control_peer(policy_path: pathlib.Path, aliases_path: pathlib.Path, name: str) -> dict:
+    for peer in list_access_control_peers(policy_path, aliases_path):
+        if peer["name"] == name:
+            return peer
+    raise KeyError(name)
+
+
+def rule_item_from_rules(rules: list[dict], index: int) -> dict:
+    if index < 0 or index >= len(rules):
+        raise KeyError(index)
+    return {
+        "index": index,
+        "rule": rules[index],
+    }
+
+
+def list_access_control_rules(policy_path: pathlib.Path) -> list[dict]:
+    return load_access_control_policy_document(policy_path)
+
+
+def get_access_control_rule(policy_path: pathlib.Path, index: int) -> dict:
+    return rule_item_from_rules(list_access_control_rules(policy_path), index)
+
+
+def store_access_control_rules(policy_path: pathlib.Path, rules: list[dict]) -> list[dict]:
+    save_access_control_policy_document(policy_path, rules)
+    return load_access_control_policy_document(policy_path)
+
+
+def create_access_control_rule(policy_path: pathlib.Path, payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise SystemExit("Rule payload must be a JSON object")
+    rules = list_access_control_rules(policy_path)
+    normalized_rule = normalize_policy_rules([payload])[0]
+    rules.append(normalized_rule)
+    updated_rules = store_access_control_rules(policy_path, rules)
+    return rule_item_from_rules(updated_rules, len(updated_rules) - 1)
+
+
+def update_access_control_rule(policy_path: pathlib.Path, index: int, payload: dict, *, merge: bool = False) -> dict:
+    if not isinstance(payload, dict):
+        raise SystemExit("Rule payload must be a JSON object")
+    rules = list_access_control_rules(policy_path)
+    if index < 0 or index >= len(rules):
+        raise KeyError(index)
+    next_rule = dict(rules[index]) if merge else {}
+    next_rule.update(payload)
+    normalized_rule = normalize_policy_rules([next_rule])[0]
+    rules[index] = normalized_rule
+    updated_rules = store_access_control_rules(policy_path, rules)
+    return rule_item_from_rules(updated_rules, index)
+
+
+def delete_access_control_rule(policy_path: pathlib.Path, index: int) -> None:
+    rules = list_access_control_rules(policy_path)
+    if index < 0 or index >= len(rules):
+        raise KeyError(index)
+    del rules[index]
+    store_access_control_rules(policy_path, rules)
+
+
+def aliases_document_groups(aliases: dict[str, dict]) -> dict[str, list[str]]:
+    groups_raw = aliases.get("groups", {})
+    if not isinstance(groups_raw, dict):
+        raise SystemExit("Alias file must contain a groups object")
+    return {name: normalize_group_members(value, name) for name, value in groups_raw.items()}
+
+
+def aliases_document_services(aliases: dict[str, dict]) -> dict[str, list[dict]]:
+    services_raw = aliases.get("services", {})
+    if not isinstance(services_raw, dict):
+        raise SystemExit("Alias file must contain a services object")
+    return {name: normalize_service_entries(value, name) for name, value in services_raw.items()}
+
+
+def group_item_from_value(name: str, value) -> dict:
+    return {
+        "name": name,
+        "members": normalize_group_members(value, name),
+    }
+
+
+def list_access_control_groups(aliases_path: pathlib.Path) -> list[dict]:
+    aliases = load_access_control_aliases_document(aliases_path)
+    groups = aliases.get("groups", {})
+    if not isinstance(groups, dict):
+        raise SystemExit("Alias file must contain a groups object")
+    return [group_item_from_value(name, value) for name, value in sorted(groups.items())]
+
+
+def get_access_control_group(aliases_path: pathlib.Path, name: str) -> dict:
+    aliases = load_access_control_aliases_document(aliases_path)
+    groups = aliases.get("groups", {})
+    if not isinstance(groups, dict):
+        raise SystemExit("Alias file must contain a groups object")
+    if name not in groups:
+        raise KeyError(name)
+    return group_item_from_value(name, groups[name])
+
+
+def persist_access_control_aliases(aliases_path: pathlib.Path, aliases: dict[str, dict]) -> dict[str, dict]:
+    save_access_control_aliases_document(aliases_path, aliases)
+    return load_access_control_aliases_document(aliases_path)
+
+
+def parse_group_payload(payload: dict, *, fallback_name: str | None = None) -> tuple[str, list[str]]:
+    if not isinstance(payload, dict):
+        raise SystemExit("Group payload must be a JSON object")
+    name = payload.get("name", fallback_name)
+    if not isinstance(name, str) or not name.strip():
+        raise SystemExit("Group name must be a non-empty string")
+    members = payload.get("members")
+    if members is None:
+        members = payload.get("peers")
+    if members is None:
+        raise SystemExit("Group payload must contain members")
+    return name.strip(), normalize_selector_list(members, f"Group {name}")
+
+
+def create_access_control_group(aliases_path: pathlib.Path, payload: dict) -> dict:
+    name, members = parse_group_payload(payload)
+    aliases = load_access_control_aliases_document(aliases_path)
+    groups = aliases.get("groups", {})
+    if not isinstance(groups, dict):
+        raise SystemExit("Alias file must contain a groups object")
+    if name in groups:
+        raise SystemExit(f"Group already exists: {name}")
+    groups[name] = members
+    aliases["groups"] = groups
+    aliases = persist_access_control_aliases(aliases_path, aliases)
+    return group_item_from_value(name, aliases["groups"][name])
+
+
+def update_access_control_group(aliases_path: pathlib.Path, name: str, payload: dict, *, merge: bool = False) -> dict:
+    aliases = load_access_control_aliases_document(aliases_path)
+    groups = aliases.get("groups", {})
+    if not isinstance(groups, dict):
+        raise SystemExit("Alias file must contain a groups object")
+    if name not in groups:
+        raise KeyError(name)
+    next_payload = {"name": name, "members": groups[name]}
+    if merge:
+        next_payload.update(payload)
+    else:
+        next_payload = dict(payload)
+        next_payload["name"] = name
+    next_name, members = parse_group_payload(next_payload, fallback_name=name)
+    if next_name != name:
+        if next_name in groups and next_name != name:
+            raise SystemExit(f"Group already exists: {next_name}")
+        groups.pop(name)
+        name = next_name
+    groups[name] = members
+    aliases["groups"] = groups
+    aliases = persist_access_control_aliases(aliases_path, aliases)
+    return group_item_from_value(name, aliases["groups"][name])
+
+
+def delete_access_control_group(aliases_path: pathlib.Path, name: str) -> None:
+    aliases = load_access_control_aliases_document(aliases_path)
+    groups = aliases.get("groups", {})
+    if not isinstance(groups, dict):
+        raise SystemExit("Alias file must contain a groups object")
+    if name not in groups:
+        raise KeyError(name)
+    groups.pop(name)
+    aliases["groups"] = groups
+    persist_access_control_aliases(aliases_path, aliases)
+
+
+def service_item_from_value(name: str, value) -> dict:
+    if isinstance(value, list):
+        return {"name": name, "entries": normalize_service_entries(value, name)}
+    if isinstance(value, dict) and "entries" in value:
+        return {"name": name, "entries": normalize_service_entries(value, name)}
+    if isinstance(value, dict) and "protocol" in value and "port" in value:
+        normalized_entries = normalize_service_entries(value, name)
+        if len(normalized_entries) == 1:
+            return {"name": name, **normalized_entries[0]}
+        return {"name": name, "entries": normalized_entries}
+    raise SystemExit(f"Unsupported service definition for {name!r}")
+
+
+def list_access_control_services(aliases_path: pathlib.Path) -> list[dict]:
+    aliases = load_access_control_aliases_document(aliases_path)
+    services = aliases.get("services", {})
+    if not isinstance(services, dict):
+        raise SystemExit("Alias file must contain a services object")
+    return [service_item_from_value(name, value) for name, value in sorted(services.items())]
+
+
+def get_access_control_service(aliases_path: pathlib.Path, name: str) -> dict:
+    aliases = load_access_control_aliases_document(aliases_path)
+    services = aliases.get("services", {})
+    if not isinstance(services, dict):
+        raise SystemExit("Alias file must contain a services object")
+    if name not in services:
+        raise KeyError(name)
+    return service_item_from_value(name, services[name])
+
+
+def parse_service_payload(payload: dict, *, fallback_name: str | None = None) -> tuple[str, dict | list]:
+    if not isinstance(payload, dict):
+        raise SystemExit("Service payload must be a JSON object")
+    name = payload.get("name", fallback_name)
+    if not isinstance(name, str) or not name.strip():
+        raise SystemExit("Service name must be a non-empty string")
+    if "entries" in payload:
+        entries = normalize_service_entries(payload, name)
+        return name.strip(), entries
+    if "protocol" in payload or "port" in payload:
+        entries = normalize_service_entries(payload, name)
+        if len(entries) == 1:
+            return name.strip(), entries[0]
+        return name.strip(), entries
+    raise SystemExit("Service payload must contain protocol/port or entries")
+
+
+def create_access_control_service(aliases_path: pathlib.Path, payload: dict) -> dict:
+    name, service_value = parse_service_payload(payload)
+    aliases = load_access_control_aliases_document(aliases_path)
+    services = aliases.get("services", {})
+    if not isinstance(services, dict):
+        raise SystemExit("Alias file must contain a services object")
+    if name in services:
+        raise SystemExit(f"Service already exists: {name}")
+    services[name] = service_value
+    aliases["services"] = services
+    aliases = persist_access_control_aliases(aliases_path, aliases)
+    return service_item_from_value(name, aliases["services"][name])
+
+
+def update_access_control_service(aliases_path: pathlib.Path, name: str, payload: dict, *, merge: bool = False) -> dict:
+    aliases = load_access_control_aliases_document(aliases_path)
+    services = aliases.get("services", {})
+    if not isinstance(services, dict):
+        raise SystemExit("Alias file must contain a services object")
+    if name not in services:
+        raise KeyError(name)
+    next_payload = {"name": name, **service_item_from_value(name, services[name])}
+    if merge:
+        next_payload.update(payload)
+    else:
+        next_payload = dict(payload)
+        next_payload["name"] = name
+    next_name, service_value = parse_service_payload(next_payload, fallback_name=name)
+    if next_name != name:
+        if next_name in services and next_name != name:
+            raise SystemExit(f"Service already exists: {next_name}")
+        services.pop(name)
+        name = next_name
+    services[name] = service_value
+    aliases["services"] = services
+    aliases = persist_access_control_aliases(aliases_path, aliases)
+    return service_item_from_value(name, aliases["services"][name])
+
+
+def delete_access_control_service(aliases_path: pathlib.Path, name: str) -> None:
+    aliases = load_access_control_aliases_document(aliases_path)
+    services = aliases.get("services", {})
+    if not isinstance(services, dict):
+        raise SystemExit("Alias file must contain a services object")
+    if name not in services:
+        raise KeyError(name)
+    services.pop(name)
+    aliases["services"] = services
+    persist_access_control_aliases(aliases_path, aliases)
+
+
 def parse_access_control_draft(payload: dict) -> tuple[dict[str, dict], list[dict]]:
     aliases = payload.get("aliases")
     rules = payload.get("rules")
@@ -826,12 +1145,31 @@ def apply_access_control_draft(policy_path: pathlib.Path, aliases_path: pathlib.
 
 def build_api_service(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> AccessControlApiService:
     return AccessControlApiService(
+        policy_path=policy_path,
+        aliases_path=aliases_path,
         openapi_spec_path=OPENAPI_SPEC_PATH,
         get_state=lambda: load_access_control_state(policy_path, aliases_path),
         get_config=lambda: load_access_control_config(policy_path, aliases_path),
         put_config=lambda payload: save_access_control_draft(policy_path, aliases_path, payload),
         preview_config=lambda payload: preview_access_control_draft(policy_path, aliases_path, payload),
         apply_config=lambda payload: apply_access_control_draft(policy_path, aliases_path, payload),
+        list_peers=lambda: list_access_control_peers(policy_path, aliases_path),
+        get_peer=lambda name: get_access_control_peer(policy_path, aliases_path, name),
+        list_rules=lambda: list_access_control_rules(policy_path),
+        get_rule=lambda index: get_access_control_rule(policy_path, index),
+        create_rule=lambda payload: create_access_control_rule(policy_path, payload),
+        update_rule=lambda index, payload, merge=False: update_access_control_rule(policy_path, index, payload, merge=merge),
+        delete_rule=lambda index: delete_access_control_rule(policy_path, index),
+        list_groups=lambda: list_access_control_groups(aliases_path),
+        get_group=lambda name: get_access_control_group(aliases_path, name),
+        create_group=lambda payload: create_access_control_group(aliases_path, payload),
+        update_group=lambda name, payload, merge=False: update_access_control_group(aliases_path, name, payload, merge=merge),
+        delete_group=lambda name: delete_access_control_group(aliases_path, name),
+        list_services=lambda: list_access_control_services(aliases_path),
+        get_service=lambda name: get_access_control_service(aliases_path, name),
+        create_service=lambda payload: create_access_control_service(aliases_path, payload),
+        update_service=lambda name, payload, merge=False: update_access_control_service(aliases_path, name, payload, merge=merge),
+        delete_service=lambda name: delete_access_control_service(aliases_path, name),
     )
 
 

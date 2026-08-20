@@ -2,7 +2,7 @@ import type { HvAppShellConfig } from "@hitachivantara/app-shell-shared";
 import type { AppShellVitePluginOptions } from "@hitachivantara/app-shell-vite-plugin";
 
 export default function appShellConfig(
-  _opts: AppShellVitePluginOptions,
+  _: AppShellVitePluginOptions,
 ): HvAppShellConfig {
   return {
     name: "wg-easy access control",
@@ -12,7 +12,6 @@ export default function appShellConfig(
       "$app/pages/Home.js": "/src/pages/Home",
       "$app/pages/Editor.js": "/src/pages/Editor",
       "$app/pages/State.js": "/src/pages/State",
-      "$app/providers/AppProvider.js": "/src/providers/AppProvider",
       "$app/providers/MockingProvider.js": "/src/providers/MockingProvider",
     },
     navigationMode: "ONLY_LEFT",
@@ -53,9 +52,6 @@ export default function appShellConfig(
       },
     ],
     providers: [
-      {
-        bundle: "$app/providers/AppProvider.js",
-      },
       {
         bundle: "$app/providers/MockingProvider.js",
       },

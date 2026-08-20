@@ -53,23 +53,23 @@ export const mockAccessControlConfigDraft: AccessControlConfigDraft = {
   },
   rules: [
     {
-      source_group: "family",
-      destination: "raspberry",
-      service: "ssh",
+      source: ["family"],
+      destination: ["raspberry"],
+      service: ["ssh"],
       action: "allow",
       comment: "Household access to Raspberry Pi admin SSH",
     },
     {
-      source: "laptop",
-      destination_group: "work",
-      service: "admin",
+      source: ["laptop"],
+      destination: ["work"],
+      service: ["admin"],
       action: "allow",
       comment: "Laptop can reach office services",
     },
     {
-      source_group: "work",
-      destination: "nas",
-      service: "dns",
+      source: ["work"],
+      destination: ["nas"],
+      service: ["dns"],
       action: "deny",
       comment: "Block DNS from work devices to NAS segment",
     },
@@ -87,13 +87,13 @@ function dedupe(values: string[]) {
   return [...new Set(values)];
 }
 
-function resolveGroupMembers(
-  groupNames: string | string[] | undefined,
+function resolveSelectorMembers(
+  selector: string | string[] | undefined,
   aliases: AccessControlAliasCatalog,
 ) {
   return dedupe(
-    toArray(groupNames).flatMap(
-      (groupName) => aliases.groups[groupName] ?? [groupName],
+    toArray(selector).flatMap(
+      (entry) => aliases.groups[entry] ?? [entry],
     ),
   );
 }
@@ -102,15 +102,10 @@ function resolveSources(
   rule: AccessControlRule,
   aliases: AccessControlAliasCatalog,
 ) {
-  if (rule.source_group) {
-    return dedupe(
-      resolveGroupMembers(rule.source_group, aliases).map(
-        (entry) => mockPeerMap[entry] ?? entry,
-      ),
-    );
-  }
   return dedupe(
-    toArray(rule.source).map((entry) => mockPeerMap[entry] ?? entry),
+    resolveSelectorMembers(rule.source, aliases).map(
+      (entry) => mockPeerMap[entry] ?? entry,
+    ),
   );
 }
 
@@ -118,11 +113,8 @@ function resolveDestinations(
   rule: AccessControlRule,
   aliases: AccessControlAliasCatalog,
 ) {
-  const entries = rule.destination_group
-    ? resolveGroupMembers(rule.destination_group, aliases)
-    : toArray(rule.destination);
   return dedupe(
-    entries.flatMap(
+    resolveSelectorMembers(rule.destination, aliases).flatMap(
       (entry) => aliases.hosts[entry] ?? [mockPeerMap[entry] ?? entry],
     ),
   );

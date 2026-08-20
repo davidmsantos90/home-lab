@@ -12,12 +12,31 @@ from urllib.parse import urlparse
 
 @dataclass(frozen=True)
 class AccessControlApiService:
+    policy_path: pathlib.Path
+    aliases_path: pathlib.Path
     openapi_spec_path: pathlib.Path
     get_state: Callable[[], dict]
     get_config: Callable[[], dict]
     put_config: Callable[[dict], dict]
     preview_config: Callable[[dict], dict]
     apply_config: Callable[[dict], dict]
+    list_peers: Callable[[], list[dict]]
+    get_peer: Callable[[str], dict]
+    list_rules: Callable[[], list[dict]]
+    get_rule: Callable[[int], dict]
+    create_rule: Callable[[dict], dict]
+    update_rule: Callable[[int, dict, bool], dict]
+    delete_rule: Callable[[int], None]
+    list_groups: Callable[[], list[dict]]
+    get_group: Callable[[str], dict]
+    create_group: Callable[[dict], dict]
+    update_group: Callable[[str, dict, bool], dict]
+    delete_group: Callable[[str], None]
+    list_services: Callable[[], list[dict]]
+    get_service: Callable[[str], dict]
+    create_service: Callable[[dict], dict]
+    update_service: Callable[[str, dict, bool], dict]
+    delete_service: Callable[[str], None]
 
 
 ALLOWED_CORS_HOSTS = {"localhost", "192.168.1.60"}
@@ -34,14 +53,37 @@ def set_cors_headers(handler: BaseHTTPRequestHandler, *, methods: str) -> None:
     handler.send_header("Access-Control-Allow-Headers", "Content-Type")
 
 
-def json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
+def normalize_api_path(path: str) -> str:
+    if path.startswith("/api/v1/"):
+        return "/api/" + path.removeprefix("/api/v1/")
+    return path
+
+
+def split_api_path(path: str) -> tuple[str, str | None]:
+    normalized = normalize_api_path(path)
+    if normalized in {"/api/peers", "/api/groups", "/api/services", "/api/rules"}:
+        return normalized, None
+    if normalized.startswith("/api/") and normalized.count("/") >= 3:
+        head, tail = normalized.rsplit("/", 1)
+        if head in {"/api/peers", "/api/groups", "/api/services", "/api/rules"} and tail:
+            return head, tail
+    return normalized, None
+
+
+def json_response(handler: BaseHTTPRequestHandler, payload: object, status: int = 200) -> None:
     body = json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
-    set_cors_headers(handler, methods="GET, POST, PUT, OPTIONS")
+    set_cors_headers(handler, methods="GET, POST, PUT, PATCH, DELETE, OPTIONS")
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def empty_response(handler: BaseHTTPRequestHandler, status: int = 204) -> None:
+    handler.send_response(status)
+    set_cors_headers(handler, methods="GET, POST, PUT, PATCH, DELETE, OPTIONS")
+    handler.end_headers()
 
 
 def text_response(handler: BaseHTTPRequestHandler, text: str, status: int = 200) -> None:
@@ -49,7 +91,7 @@ def text_response(handler: BaseHTTPRequestHandler, text: str, status: int = 200)
     handler.send_response(status)
     handler.send_header("Content-Type", "text/plain; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
-    set_cors_headers(handler, methods="GET, POST, PUT, OPTIONS")
+    set_cors_headers(handler, methods="GET, POST, PUT, PATCH, DELETE, OPTIONS")
     handler.end_headers()
     handler.wfile.write(body)
 
@@ -89,37 +131,35 @@ def api_handler(service: AccessControlApiService):
 
         def do_OPTIONS(self) -> None:  # noqa: N802
             self.send_response(204)
-            set_cors_headers(self, methods="GET, POST, PUT, OPTIONS")
+            set_cors_headers(self, methods="GET, POST, PUT, PATCH, DELETE, OPTIONS")
             self.end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
             try:
-                if self.path in {"/healthz", "/api/healthz"}:
+                path = normalize_api_path(self.path)
+                head, tail = split_api_path(path)
+                if path in {"/healthz", "/api/healthz"}:
                     text_response(self, "ok")
                     return
-                if self.path in {"/openapi.json", "/api/openapi.json"}:
+                if path in {"/openapi.json", "/api/openapi.json"}:
                     json_response(self, load_openapi_spec(service.openapi_spec_path))
                     return
-                if self.path in {"/api/state", "/api/v1/state"}:
+                if path in {"/api/state"}:
                     json_response(self, service.get_state())
                     return
-                if self.path in {"/api/config", "/api/v1/config"}:
+                if path in {"/api/config"}:
                     json_response(self, service.get_config())
                     return
 
                 state = None
-                if self.path in {
+                if path in {
                     "/api/inventory",
-                    "/api/v1/inventory",
                     "/api/peers",
-                    "/api/v1/peers",
                     "/api/aliases",
-                    "/api/v1/aliases",
                     "/api/policies",
-                    "/api/v1/policies",
                 }:
                     state = service.get_state()
-                if self.path in {"/api/inventory", "/api/v1/inventory", "/api/peers", "/api/v1/peers"}:
+                if path == "/api/inventory":
                     json_response(
                         self,
                         {
@@ -131,14 +171,41 @@ def api_handler(service: AccessControlApiService):
                         },
                     )
                     return
-                if self.path in {"/api/aliases", "/api/v1/aliases"}:
+                if path == "/api/peers":
+                    json_response(self, service.list_peers())
+                    return
+                if head == "/api/peers" and tail is not None:
+                    json_response(self, service.get_peer(tail))
+                    return
+                if path == "/api/aliases":
                     json_response(self, {"aliases": state["aliases"]})
                     return
-                if self.path in {"/api/policies", "/api/v1/policies"}:
+                if path == "/api/policies":
                     json_response(self, {"rules": state["rules"]})
+                    return
+                if path == "/api/rules" and tail is None:
+                    json_response(self, service.list_rules())
+                    return
+                if head == "/api/rules" and tail is not None:
+                    json_response(self, service.get_rule(int(tail)))
+                    return
+                if path == "/api/groups" and tail is None:
+                    json_response(self, service.list_groups())
+                    return
+                if head == "/api/groups" and tail is not None:
+                    json_response(self, service.get_group(tail))
+                    return
+                if path == "/api/services" and tail is None:
+                    json_response(self, service.list_services())
+                    return
+                if head == "/api/services" and tail is not None:
+                    json_response(self, service.get_service(tail))
                     return
             except urllib.error.HTTPError as exc:
                 text_response(self, f"wg-easy API request failed: {exc}", status=502)
+                return
+            except KeyError as exc:
+                text_response(self, f"Resource not found: {exc.args[0]}", status=404)
                 return
             except subprocess.CalledProcessError as exc:
                 stderr = exc.stderr.strip() if exc.stderr else ""
@@ -152,12 +219,77 @@ def api_handler(service: AccessControlApiService):
 
             json_response(self, {"error": "not found"}, status=404)
 
+        def do_DELETE(self) -> None:  # noqa: N802
+            try:
+                path = normalize_api_path(self.path)
+                head, tail = split_api_path(path)
+                if head == "/api/rules" and tail is not None:
+                    service.delete_rule(int(tail))
+                    empty_response(self)
+                    return
+                if head == "/api/groups" and tail is not None:
+                    service.delete_group(tail)
+                    empty_response(self)
+                    return
+                if head == "/api/services" and tail is not None:
+                    service.delete_service(tail)
+                    empty_response(self)
+                    return
+                json_response(self, {"error": "not found"}, status=404)
+            except KeyError as exc:
+                text_response(self, f"Resource not found: {exc.args[0]}", status=404)
+            except SystemExit as exc:
+                text_response(self, str(exc), status=400)
+
+        def do_PATCH(self) -> None:  # noqa: N802
+            try:
+                path = normalize_api_path(self.path)
+                head, tail = split_api_path(path)
+                payload = json_request(self)
+                if head == "/api/rules" and tail is not None:
+                    json_response(self, service.update_rule(int(tail), payload, True))
+                    return
+                if head == "/api/groups" and tail is not None:
+                    json_response(self, service.update_group(tail, payload, True))
+                    return
+                if head == "/api/services" and tail is not None:
+                    json_response(self, service.update_service(tail, payload, True))
+                    return
+                json_response(self, {"error": "not found"}, status=404)
+            except KeyError as exc:
+                text_response(self, f"Resource not found: {exc.args[0]}", status=404)
+            except SystemExit as exc:
+                text_response(self, str(exc), status=400)
+
         def do_PUT(self) -> None:  # noqa: N802
             try:
-                if self.path not in {"/api/config", "/api/v1/config"}:
+                path = normalize_api_path(self.path)
+                head, tail = split_api_path(path)
+                if path in {"/api/config"}:
+                    json_response(self, service.put_config(json_request(self)))
+                    return
+                payload = json_request(self)
+                if head == "/api/rules" and tail is not None:
+                    json_response(self, service.update_rule(int(tail), payload, False))
+                    return
+                if head == "/api/groups" and tail is not None:
+                    json_response(self, service.update_group(tail, payload, False))
+                    return
+                if head == "/api/services" and tail is not None:
+                    json_response(self, service.update_service(tail, payload, False))
+                    return
+                if head == "/api/groups" and tail is None:
+                    json_response(self, service.create_group(payload))
+                    return
+                if head == "/api/services" and tail is None:
+                    json_response(self, service.create_service(payload))
+                    return
+                if head == "/api/rules" and tail is None:
+                    json_response(self, service.create_rule(payload))
+                    return
+                if path not in {"/api/config"}:
                     json_response(self, {"error": "not found"}, status=404)
                     return
-                json_response(self, service.put_config(json_request(self)))
             except urllib.error.HTTPError as exc:
                 text_response(self, f"wg-easy API request failed: {exc}", status=502)
             except subprocess.CalledProcessError as exc:
@@ -165,17 +297,29 @@ def api_handler(service: AccessControlApiService):
                 stdout = exc.stdout.strip() if exc.stdout else ""
                 message = stderr or stdout or str(exc)
                 text_response(self, f"iptables command failed: {message}", status=500)
+            except KeyError as exc:
+                text_response(self, f"Resource not found: {exc.args[0]}", status=404)
             except SystemExit as exc:
                 text_response(self, str(exc), status=400)
 
         def do_POST(self) -> None:  # noqa: N802
             try:
                 payload = json_request(self)
-                if self.path in {"/api/preview", "/api/v1/preview"}:
+                path = normalize_api_path(self.path)
+                if path == "/api/preview":
                     json_response(self, service.preview_config(payload))
                     return
-                if self.path in {"/api/config/apply", "/api/v1/config/apply"}:
+                if path == "/api/config/apply":
                     json_response(self, service.apply_config(payload))
+                    return
+                if path == "/api/rules":
+                    json_response(self, service.create_rule(payload))
+                    return
+                if path == "/api/groups":
+                    json_response(self, service.create_group(payload))
+                    return
+                if path == "/api/services":
+                    json_response(self, service.create_service(payload))
                     return
                 json_response(self, {"error": "not found"}, status=404)
             except urllib.error.HTTPError as exc:
@@ -185,6 +329,8 @@ def api_handler(service: AccessControlApiService):
                 stdout = exc.stdout.strip() if exc.stdout else ""
                 message = stderr or stdout or str(exc)
                 text_response(self, f"iptables command failed: {message}", status=500)
+            except KeyError as exc:
+                text_response(self, f"Resource not found: {exc.args[0]}", status=404)
             except SystemExit as exc:
                 text_response(self, str(exc), status=400)
 
@@ -195,7 +341,7 @@ def serve_api(service: AccessControlApiService, host: str, port: int) -> None:
     server = ThreadingHTTPServer((host, port), api_handler(service))
     print(f"Serving access-control API on http://{host}:{port}")
     print(
-        "Available endpoints: /healthz, /openapi.json, /api/state, /api/config, /api/inventory, /api/aliases, /api/policies, /api/preview, /api/config/apply"
+        "Available endpoints: /healthz, /openapi.json, /api/state, /api/config, /api/inventory, /api/peers, /api/aliases, /api/policies, /api/rules, /api/groups, /api/services, /api/preview, /api/config/apply"
     )
     try:
         server.serve_forever()

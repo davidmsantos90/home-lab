@@ -29,6 +29,9 @@ def is_api_request_path(path: str) -> bool:
             "/api/peers",
             "/api/aliases",
             "/api/policies",
+            "/api/groups",
+            "/api/services",
+            "/api/rules",
             "/api/preview",
             "/api/v1/",
         )
@@ -125,6 +128,20 @@ def build_ui_handler(root: pathlib.Path, api_service: AccessControlApiService):
         def do_PUT(self) -> None:  # noqa: N802
             if self.path.startswith("/api/"):
                 api.do_PUT(self)
+                return
+            self.send_response(405)
+            self.end_headers()
+
+        def do_PATCH(self) -> None:  # noqa: N802
+            if self.path.startswith("/api/"):
+                api.do_PATCH(self)
+                return
+            self.send_response(405)
+            self.end_headers()
+
+        def do_DELETE(self) -> None:  # noqa: N802
+            if self.path.startswith("/api/"):
+                api.do_DELETE(self)
                 return
             self.send_response(405)
             self.end_headers()

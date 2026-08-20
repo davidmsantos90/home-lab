@@ -59,10 +59,22 @@ Endpoints:
 
 - `/api/healthz`
 - `/api/state`
-- `/api/inventory` (alias: `/api/peers`)
+- `/api/inventory`
+- `/api/peers` (peer list)
+- `/api/peers/{peerName}`
 - `/api/aliases`
 - `/api/policies`
+- `/api/rules`
+- `/api/rules/{ruleIndex}`
+- `/api/groups`
+- `/api/groups/{groupName}`
+- `/api/services`
+- `/api/services/{serviceName}`
 - `/api/openapi.json`
+
+Peers are read-only because they come from the live wg-easy inventory. Rules,
+groups, and services are editable as individual resources through the new REST
+endpoints above.
 
 ## UI Bundle
 
@@ -141,10 +153,10 @@ One service alias may expand to multiple concrete protocol/port rules.
 
 ### Selectors
 
-In `source`, `source_group`, `destination`, and `destination_group` fields, you can use:
+In `source` and `destination` fields, you can use:
 
 - **Peer name**: `"macbook"` — resolves to the peer's current WireGuard IP via the wg-easy API
-- **Group name**: `"family"` — expands to all peers in that group (use in `source_group` or `destination_group`)
+- **Group name**: `"family"` — expands to all peers in that group
 - **Host alias**: `"raspberry"` — resolves through `aliases.json`
 - **All peers**: `"*"` — expands to all active peers from the wg-easy API
 - **IP/CIDR**: `"192.168.1.60"`, `"10.200.0.0/24"`, `"0.0.0.0/0"` — literal network addresses
@@ -152,8 +164,8 @@ In `source`, `source_group`, `destination`, and `destination_group` fields, you 
 
 ### Rule Fields
 
-- `source` or `source_group` — where traffic comes from
-- `destination` or `destination_group` — where traffic goes to
+- `source` — where traffic comes from
+- `destination` — where traffic goes to
 - `service` — one or more named service aliases
 - `protocol` — `"tcp"`, `"udp"`, or omit for both
 - `port` — specific port number, or omit for all ports
@@ -171,8 +183,8 @@ infrastructure chain, so peer policies do not need Docker-network destinations.
 
 ```json
 [
-  { "source_group": "family", "destination": "raspberry", "service": "ssh", "action": "reject", "comment": "Block SSH to Raspberry" },
-  { "source": "iphone", "destination": "macbook", "action": "deny" },
-  { "source": "macbook", "destination": "phone", "action": "allow" }
+  { "source": ["family"], "destination": ["raspberry"], "service": ["ssh"], "action": "reject", "comment": "Block SSH to Raspberry" },
+  { "source": ["iphone"], "destination": ["macbook"], "action": "deny" },
+  { "source": ["macbook"], "destination": ["phone"], "action": "allow" }
 ]
 ```

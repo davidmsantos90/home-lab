@@ -1,25 +1,25 @@
 [
   {
-    "source_group": "family",
-    "destination": "raspberry",
-    "service": "ssh",
+    "source": ["family"],
+    "destination": ["raspberry"],
+    "service": ["ssh"],
     "action": "reject",
     "comment": "Block SSH to Raspberry"
   },
   {
-    "source": "iphone",
-    "destination": "macbook",
+    "source": ["iphone"],
+    "destination": ["macbook"],
     "action": "deny",
     "comment": "Default phone to Mac deny"
   },
   {
-    "source": "macbook",
-    "destination": "phone",
+    "source": ["macbook"],
+    "destination": ["phone"],
     "action": "allow",
     "comment": "Allow Mac to phone"
   },
   {
-    "source": "dams-s23",
+    "source": ["dams-s23"],
     "destination": ["macbook", "raspberry"],
     "service": ["https", "admin"],
     "action": "allow",

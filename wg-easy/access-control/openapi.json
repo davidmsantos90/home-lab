@@ -191,6 +191,507 @@
           }
         }
       }
+    },
+    "/api/peers": {
+      "get": {
+        "operationId": "getAccessControlPeers",
+        "responses": {
+          "200": {
+            "description": "Peer inventory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccessControlPeer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/peers/{peerName}": {
+      "get": {
+        "operationId": "getAccessControlPeer",
+        "parameters": [
+          {
+            "name": "peerName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Peer details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlPeer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rules": {
+      "get": {
+        "operationId": "getAccessControlRules",
+        "responses": {
+          "200": {
+            "description": "Policy rules",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccessControlRule"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAccessControlRule",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlRule"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created policy rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlRuleItem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rules/{ruleIndex}": {
+      "get": {
+        "operationId": "getAccessControlRule",
+        "parameters": [
+          {
+            "name": "ruleIndex",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Policy rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlRuleItem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceAccessControlRule",
+        "parameters": [
+          {
+            "name": "ruleIndex",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlRule"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated policy rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlRuleItem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patchAccessControlRule",
+        "parameters": [
+          {
+            "name": "ruleIndex",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlRule"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated policy rule",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlRuleItem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAccessControlRule",
+        "parameters": [
+          {
+            "name": "ruleIndex",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Policy rule deleted"
+          }
+        }
+      }
+    },
+    "/api/groups": {
+      "get": {
+        "operationId": "getAccessControlGroups",
+        "responses": {
+          "200": {
+            "description": "Named peer groups",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccessControlGroup"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAccessControlGroup",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlGroup"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlGroup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/groups/{groupName}": {
+      "get": {
+        "operationId": "getAccessControlGroup",
+        "parameters": [
+          {
+            "name": "groupName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Named peer group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlGroup"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceAccessControlGroup",
+        "parameters": [
+          {
+            "name": "groupName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlGroup"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlGroup"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patchAccessControlGroup",
+        "parameters": [
+          {
+            "name": "groupName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlGroup"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated group",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlGroup"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAccessControlGroup",
+        "parameters": [
+          {
+            "name": "groupName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Group deleted"
+          }
+        }
+      }
+    },
+    "/api/services": {
+      "get": {
+        "operationId": "getAccessControlServices",
+        "responses": {
+          "200": {
+            "description": "Named service aliases",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AccessControlService"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAccessControlService",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlService"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created service",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlService"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/services/{serviceName}": {
+      "get": {
+        "operationId": "getAccessControlService",
+        "parameters": [
+          {
+            "name": "serviceName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Named service alias",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlService"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceAccessControlService",
+        "parameters": [
+          {
+            "name": "serviceName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlService"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated service",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlService"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "patchAccessControlService",
+        "parameters": [
+          {
+            "name": "serviceName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccessControlService"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated service",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccessControlService"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAccessControlService",
+        "parameters": [
+          {
+            "name": "serviceName",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Service deleted"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -212,13 +713,11 @@
         "type": "object",
         "required": ["protocol", "port"],
         "properties": {
-          "protocol": { "type": "string" },
-          "port": {
-            "oneOf": [
-              { "type": "integer" },
-              { "type": "string" }
-            ]
-          }
+          "protocol": {
+            "type": "string",
+            "enum": ["tcp", "udp"]
+          },
+          "port": { "type": "integer" }
         },
         "additionalProperties": true
       },
@@ -257,43 +756,26 @@
         "required": ["action"],
         "properties": {
           "source": {
-            "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
-            ]
-          },
-          "source_group": {
-            "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
-            ]
+            "type": "array",
+            "items": { "type": "string" }
           },
           "destination": {
-            "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
-            ]
-          },
-          "destination_group": {
-            "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
-            ]
+            "type": "array",
+            "items": { "type": "string" }
           },
           "service": {
-            "oneOf": [
-              { "type": "string" },
-              { "type": "array", "items": { "type": "string" } }
-            ]
+            "type": "array",
+            "items": { "type": "string" }
           },
-          "protocol": { "type": "string" },
-          "port": {
-            "oneOf": [
-              { "type": "integer" },
-              { "type": "string" }
-            ]
+          "protocol": {
+            "type": "string",
+            "enum": ["tcp", "udp"]
           },
-          "action": { "type": "string" },
+          "port": { "type": "integer" },
+          "action": {
+            "type": "string",
+            "enum": ["allow", "deny", "drop", "reject"]
+          },
           "comment": { "type": "string" }
         },
         "additionalProperties": true
@@ -416,6 +898,88 @@
         "required": ["aliases"],
         "properties": {
           "aliases": { "$ref": "#/components/schemas/AccessControlAliasCatalog" }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlPeersResponse": {
+        "type": "object",
+        "required": ["peers"],
+        "properties": {
+          "peers": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlPeer" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlGroup": {
+        "type": "object",
+        "required": ["name", "members"],
+        "properties": {
+          "name": { "type": "string" },
+          "members": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlGroupsResponse": {
+        "type": "object",
+        "required": ["groups"],
+        "properties": {
+          "groups": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlGroup" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlService": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string" },
+          "protocol": {
+            "type": "string",
+            "enum": ["tcp", "udp"]
+          },
+          "port": { "type": "integer" },
+          "entries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlServiceEntry" }
+          }
+        },
+        "additionalProperties": true
+      },
+      "AccessControlServicesResponse": {
+        "type": "object",
+        "required": ["services"],
+        "properties": {
+          "services": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlService" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlRuleItem": {
+        "type": "object",
+        "required": ["index", "rule"],
+        "properties": {
+          "index": { "type": "integer" },
+          "rule": { "$ref": "#/components/schemas/AccessControlRule" }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlRulesResponse": {
+        "type": "object",
+        "required": ["rules"],
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlRule" }
+          }
         },
         "additionalProperties": false
       },

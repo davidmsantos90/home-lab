@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type FC } from "react";
 import {
   ListChecksIcon,
   NetworkIcon,
@@ -14,15 +14,27 @@ import {
   HvTypography,
 } from "@hitachivantara/uikit-react-core";
 
-import { useGetAccessControlState } from "../api/apiComponents";
+import {
+  useGetAccessControlGroups,
+  useGetAccessControlPeers,
+  useGetAccessControlRules,
+  useGetAccessControlServices,
+  useGetAccessControlState,
+} from "../api/apiComponents";
 import CatalogTags from "../components/common/CatalogTags";
 import SectionCard from "../components/common/SectionCard";
 import StatCard from "../components/common/StatCard";
 import Header from "../components/home/Header";
 import RulesTable from "../components/home/RulesTable";
+import withProvider from "../lib/withProvider";
+import AppProvider from "../providers/AppProvider";
 
-export default function HomePage() {
+const HomePage: FC = () => {
   const { data: state, isLoading, error } = useGetAccessControlState({});
+  const { data: peers = [] } = useGetAccessControlPeers({});
+  const { data: rules = [] } = useGetAccessControlRules({});
+  const { data: groups = [] } = useGetAccessControlGroups({});
+  const { data: services = [] } = useGetAccessControlServices({});
 
   const summary = useMemo(() => {
     if (!state) {
@@ -30,22 +42,17 @@ export default function HomePage() {
     }
 
     const aliasCatalog = state.aliases;
-    const serviceEntries = Object.values(aliasCatalog.services).reduce(
-      (count, entries) => count + entries.length,
-      0,
-    );
 
     return {
-      peers: state.peers.length,
-      rules: state.rules.length,
+      peers: peers.length,
+      rules: rules.length,
       ipsets: state.compiled.ipsets.length,
-      groups: Object.keys(aliasCatalog.groups).length,
+      groups: groups.length,
       hosts: Object.keys(aliasCatalog.hosts).length,
-      services: Object.keys(aliasCatalog.services).length,
-      serviceEntries,
+      services: services.length,
       compiledRules: state.compiled.iptables.length,
     };
-  }, [state]);
+  }, [groups.length, peers.length, rules.length, services.length, state]);
 
   return (
     <HvContainer className="flex flex-col gap-6 py-6">
@@ -113,10 +120,8 @@ export default function HomePage() {
             <div className="flex flex-col gap-4">
               <CatalogTags
                 title={`Peers (${summary?.peers ?? 0})`}
-                tags={Object.entries(state?.peers ?? {})}
-                computeTagLabel={([_, details]) =>
-                  `${details.name} → ${details.ipv4Address}`
-                }
+                tags={peers}
+                computeTagLabel={(peer) => `${peer.name} → ${peer.ipv4Address}`}
               />
 
               <CatalogTags
@@ -129,17 +134,17 @@ export default function HomePage() {
 
               <CatalogTags
                 title={`Groups (${summary?.groups ?? 0})`}
-                tags={Object.entries(state?.aliases.groups ?? {})}
-                computeTagLabel={([group, members]) =>
-                  `${group} → ${members.join(", ")}`
+                tags={groups}
+                computeTagLabel={(group) =>
+                  `${group.name} → ${group.members.join(", ")}`
                 }
               />
 
               <CatalogTags
                 title={`Services (${summary?.services ?? 0})`}
-                tags={Object.entries(state?.aliases.services ?? {})}
-                computeTagLabel={([service, entries]) =>
-                  `${service} (${entries.length})`
+                tags={services}
+                computeTagLabel={(service) =>
+                  `${service.name} (${service.entries.length})`
                 }
               />
             </div>
@@ -211,4 +216,6 @@ export default function HomePage() {
       </HvLoadingContainer>
     </HvContainer>
   );
-}
+};
+
+export default withProvider(HomePage, [AppProvider]);
