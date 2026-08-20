@@ -6,18 +6,14 @@ import argparse
 import os
 import pathlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
 
-from api import AccessControlApiService, api_handler
+from api import AccessControlApiService, api_handler, is_allowed_origin
 from sync import access_control_dir, build_api_service
 
 
 DEFAULT_HOST = os.environ.get("ACCESS_CONTROL_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.environ.get("ACCESS_CONTROL_PORT", "8787"))
 DEFAULT_DIRECTORY = pathlib.Path(__file__).resolve().parent / "ui" / "dist"
-ALLOWED_CORS_HOSTS = {"localhost", "192.168.1.60"}
-
-
 def is_api_request_path(path: str) -> bool:
     if path in {"/api/healthz", "/api/openapi.json"}:
         return True
@@ -76,27 +72,15 @@ def build_ui_handler(root: pathlib.Path, api_service: AccessControlApiService):
                 super().end_headers()
                 return
             origin = self.headers.get("Origin")
-            if origin:
-                parsed = urlparse(origin)
-                if parsed.hostname in ALLOWED_CORS_HOSTS:
-                    self.send_header("Access-Control-Allow-Origin", origin)
-                    self.send_header("Vary", "Origin")
+            if origin and is_allowed_origin(self, origin):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
             self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Content-Type")
             super().end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
-            api_paths = (
-                "/api/state",
-                "/api/config",
-                "/api/inventory",
-                "/api/peers",
-                "/api/aliases",
-                "/api/policies",
-                "/api/openapi.json",
-                "/api/healthz",
-            )
-            if self.path in {"/api/healthz", "/api/openapi.json"} or self.path.startswith(api_paths):
+            if is_api_request_path(self.path):
                 api.do_GET(self)
                 return
             if self.path == "/" and not index_path.exists():

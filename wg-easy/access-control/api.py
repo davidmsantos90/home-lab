@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import pathlib
 import subprocess
 from typing import Callable
@@ -39,16 +40,42 @@ class AccessControlApiService:
     delete_service: Callable[[str], None]
 
 
-ALLOWED_CORS_HOSTS = {"localhost", "192.168.1.60"}
+DEFAULT_ALLOWED_CORS_HOSTS = {"localhost", "127.0.0.1", "192.168.1.60"}
+
+
+def allowed_cors_hosts() -> set[str]:
+    configured_hosts = os.environ.get("ACCESS_CONTROL_CORS_ALLOWED_HOSTS", "")
+    return DEFAULT_ALLOWED_CORS_HOSTS | {
+        host.strip().lower() for host in configured_hosts.split(",") if host.strip()
+    }
+
+
+def request_hostnames(handler: BaseHTTPRequestHandler) -> set[str]:
+    hostnames: set[str] = set()
+    for header_name in ("X-Forwarded-Host", "Host"):
+        raw_value = handler.headers.get(header_name)
+        if raw_value is None:
+            continue
+        for host_value in raw_value.split(","):
+            hostname = urlparse(f"//{host_value.strip()}").hostname
+            if hostname:
+                hostnames.add(hostname.lower())
+    return hostnames
+
+
+def is_allowed_origin(handler: BaseHTTPRequestHandler, origin: str) -> bool:
+    parsed = urlparse(origin)
+    if parsed.hostname is None:
+        return False
+    origin_host = parsed.hostname.lower()
+    return origin_host in allowed_cors_hosts() or origin_host in request_hostnames(handler)
 
 
 def set_cors_headers(handler: BaseHTTPRequestHandler, *, methods: str) -> None:
     origin = handler.headers.get("Origin")
-    if origin:
-        parsed = urlparse(origin)
-        if parsed.hostname in ALLOWED_CORS_HOSTS:
-            handler.send_header("Access-Control-Allow-Origin", origin)
-            handler.send_header("Vary", "Origin")
+    if origin and is_allowed_origin(handler, origin):
+        handler.send_header("Access-Control-Allow-Origin", origin)
+        handler.send_header("Vary", "Origin")
     handler.send_header("Access-Control-Allow-Methods", methods)
     handler.send_header("Access-Control-Allow-Headers", "Content-Type")
 

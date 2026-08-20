@@ -144,7 +144,7 @@ const HomePage: FC = () => {
                 title={`Services (${summary?.services ?? 0})`}
                 tags={services}
                 computeTagLabel={(service) =>
-                  `${service.name} (${service.entries.length})`
+                  `${service.name} (${service.entries?.length ?? 1})`
                 }
               />
             </div>
