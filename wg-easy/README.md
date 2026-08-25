@@ -7,6 +7,7 @@ WireGuard VPN management stack with automatic DuckDNS updates.
 - `wg-easy` attaches to both `wg_easy_internal` and `homelab` networks for interoperability
 - **Dynamic egress interface (RFC-002)**: Automatically detects the correct outbound interface for NAT rules, preventing handshake failures when containers are on multiple networks
 - **DuckDNS**: Dynamic DNS for the WireGuard UDP endpoint
+- **Reboot self-healing**: `wg-easy` is marked unhealthy when API/wg0/NAT baseline is missing, and the `autoheal` sidecar restarts unhealthy containers
 - Admin UI is bound to `127.0.0.1:51821` on the host only (no public exposure), and is additionally reachable by authenticated VPN clients at a dedicated translated IP (see "Accessing admin UIs over the wg-easy VPN" in the root [README.md](/Users/davsantos/github/misc/home-lab/README.md))
 - RFC-007's future management UI is planned as a React app using [hv-uikit-react](https://github.com/pentaho/hv-uikit-react)
 - The access-control synchronizer can also serve a read-only API (`./lab.sh access-sync --serve`) with live peer discovery and policy preview data for future UI work
@@ -58,6 +59,8 @@ docker compose up -d
 ```
 
 The stack includes a one-shot bootstrap service ([bootstrap-hooks.sh](/Users/davsantos/github/misc/home-lab/wg-easy/hooks/bootstrap-hooks.sh)) that applies the working hooks through the wg-easy API after startup.
+It also includes an `autoheal` sidecar that watches containers labeled with
+`autoheal=true` and restarts them when Docker healthchecks report `unhealthy`.
 
 Check bootstrap result:
 
@@ -98,6 +101,13 @@ Test VPN connectivity from a client:
 ```bash
 # Should return the server's public IP, not the client's ISP IP
 curl https://ifconfig.me
+```
+
+Check self-healing status:
+
+```bash
+docker compose ps
+docker logs autoheal-wg-easy --tail 100
 ```
 
 ### RFC-001 Overlap Subnet Validation
