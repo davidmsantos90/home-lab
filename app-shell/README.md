@@ -21,3 +21,6 @@ docker compose up -d
 runtime. That file is external to the repo and should be created by hand.
 
 The shell is published on `0.0.0.0:${SERVICEPORT}` and serves the app at `/`.
+
+The App Shell container also joins the shared `homelab` network, so Nginx
+Proxy Manager can route to it by container name (`app-app-shell:3000`).

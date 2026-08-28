@@ -9,4 +9,13 @@ services:
       - ${HOME_LAB_DIR:-.}/app-shell.config.json:/config/app-shell.config.json:ro
     ports:
       - "0.0.0.0:${SERVICEPORT}:3000/tcp"
+    networks:
+      default: {}
+      homelab: {}
     restart: unless-stopped
+
+networks:
+  default:
+    name: app_shell_internal
+  homelab:
+    external: true

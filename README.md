@@ -232,6 +232,7 @@ When adding proxy hosts in NPM, use the application container/service name as th
 | Deluge | `app-deluge` | `8112` |
 | Plex | `app-plex` | `32400` |
 | Jellyfin | `app-jellyfin` | `8096` |
+| App Shell | `app-app-shell` | `3000` |
 
 For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — bridge containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
 
