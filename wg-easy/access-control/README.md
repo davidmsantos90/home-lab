@@ -90,6 +90,7 @@ Environment overrides:
 - `ACCESS_CONTROL_HOST`
 - `ACCESS_CONTROL_PORT`
 - `ACCESS_CONTROL_UI_DIST_DIR`
+- `ACCESS_CONTROL_PUBLIC_PATH_PREFIX` — optional public path prefix for UI/API when served behind a reverse proxy (default: `/access-control`)
 - `ACCESS_CONTROL_CORS_ALLOWED_HOSTS` — comma-separated extra hostnames that may access the API cross-origin
 
 This is the recommended runtime entrypoint. It serves the app at `/` and the

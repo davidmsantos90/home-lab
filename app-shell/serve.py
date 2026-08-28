@@ -36,6 +36,15 @@ def load_config(config_path: pathlib.Path) -> dict:
     return {"path": str(config_path)}
 
 
+def is_spa_navigation_request(path: str, accept_header: str | None) -> bool:
+    if accept_header is None or "text/html" not in accept_header:
+        return False
+    clean_path = path.split("?", 1)[0]
+    if clean_path in {"", "/"}:
+        return True
+    return "." not in clean_path.rsplit("/", 1)[-1]
+
+
 def main() -> int:
     args = parse_args()
     root = pathlib.Path(args.directory).resolve()
@@ -69,7 +78,7 @@ def main() -> int:
                 return
 
             index_path = root / "index.html"
-            if index_path.exists():
+            if index_path.exists() and is_spa_navigation_request(path, self.headers.get("Accept")):
                 self.path = "/index.html"
                 super().do_GET()
                 return

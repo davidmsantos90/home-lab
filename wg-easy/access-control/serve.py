@@ -6,6 +6,7 @@ import argparse
 import os
 import pathlib
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 
 from api import AccessControlApiService, api_handler, is_allowed_origin
 from sync import access_control_dir, build_api_service
@@ -14,10 +15,42 @@ from sync import access_control_dir, build_api_service
 DEFAULT_HOST = os.environ.get("ACCESS_CONTROL_HOST", "0.0.0.0")
 DEFAULT_PORT = int(os.environ.get("ACCESS_CONTROL_PORT", "8787"))
 DEFAULT_DIRECTORY = pathlib.Path(__file__).resolve().parent / "ui" / "dist"
-def is_api_request_path(path: str) -> bool:
-    if path in {"/api/healthz", "/api/openapi.json"}:
+raw_public_path_prefix = os.environ.get("ACCESS_CONTROL_PUBLIC_PATH_PREFIX", "/access-control").strip()
+if raw_public_path_prefix and not raw_public_path_prefix.startswith("/"):
+    raw_public_path_prefix = f"/{raw_public_path_prefix}"
+PUBLIC_PATH_PREFIX = "/" if raw_public_path_prefix == "/" else raw_public_path_prefix.rstrip("/")
+
+
+def normalize_public_path(path: str) -> str:
+    parsed = urlparse(path)
+    normalized_path = parsed.path
+
+    if PUBLIC_PATH_PREFIX in {"", "/"}:
+        return parsed.geturl()
+
+    if normalized_path == PUBLIC_PATH_PREFIX:
+        normalized_path = "/"
+    elif normalized_path.startswith(f"{PUBLIC_PATH_PREFIX}/"):
+        normalized_path = normalized_path[len(PUBLIC_PATH_PREFIX):]
+
+    normalized = parsed._replace(path=normalized_path)
+    return normalized.geturl()
+
+
+def is_spa_navigation_request(path: str, accept_header: str | None) -> bool:
+    if accept_header is None or "text/html" not in accept_header:
+        return False
+    clean_path = path.split("?", 1)[0]
+    if clean_path in {"", "/"}:
         return True
-    return path.startswith(
+    return "." not in clean_path.rsplit("/", 1)[-1]
+
+
+def is_api_request_path(path: str) -> bool:
+    normalized_path = normalize_public_path(path).split("?", 1)[0]
+    if normalized_path in {"/api/healthz", "/api/openapi.json"}:
+        return True
+    return normalized_path.startswith(
         (
             "/api/state",
             "/api/config",
@@ -80,8 +113,32 @@ def build_ui_handler(root: pathlib.Path, api_service: AccessControlApiService):
             super().end_headers()
 
         def do_GET(self) -> None:  # noqa: N802
+            normalized_path = normalize_public_path(self.path)
             if is_api_request_path(self.path):
-                api.do_GET(self)
+                original_path = self.path
+                try:
+                    self.path = normalized_path
+                    api.do_GET(self)
+                finally:
+                    self.path = original_path
+                return
+            path = normalized_path.split("?", 1)[0]
+            candidate = (root / path.lstrip("/")).resolve()
+            if candidate.is_file():
+                original_path = self.path
+                try:
+                    self.path = normalized_path
+                    super().do_GET()
+                finally:
+                    self.path = original_path
+                return
+            if index_path.exists() and is_spa_navigation_request(path, self.headers.get("Accept")):
+                original_path = self.path
+                try:
+                    self.path = "/index.html"
+                    super().do_GET()
+                finally:
+                    self.path = original_path
                 return
             if self.path == "/" and not index_path.exists():
                 self.send_response(200)
@@ -93,39 +150,65 @@ def build_ui_handler(root: pathlib.Path, api_service: AccessControlApiService):
                     b"Configure the main App Shell to consume the bundle modules here.</p></body></html>"
                 )
                 return
-            super().do_GET()
+            self.send_response(404)
+            self.end_headers()
 
         def do_OPTIONS(self) -> None:  # noqa: N802
-            if self.path.startswith("/api/"):
-                api.do_OPTIONS(self)
+            if is_api_request_path(self.path):
+                original_path = self.path
+                try:
+                    self.path = normalize_public_path(self.path)
+                    api.do_OPTIONS(self)
+                finally:
+                    self.path = original_path
                 return
             self.send_response(204)
             self.end_headers()
 
         def do_POST(self) -> None:  # noqa: N802
-            if self.path.startswith("/api/"):
-                api.do_POST(self)
+            if is_api_request_path(self.path):
+                original_path = self.path
+                try:
+                    self.path = normalize_public_path(self.path)
+                    api.do_POST(self)
+                finally:
+                    self.path = original_path
                 return
             self.send_response(405)
             self.end_headers()
 
         def do_PUT(self) -> None:  # noqa: N802
-            if self.path.startswith("/api/"):
-                api.do_PUT(self)
+            if is_api_request_path(self.path):
+                original_path = self.path
+                try:
+                    self.path = normalize_public_path(self.path)
+                    api.do_PUT(self)
+                finally:
+                    self.path = original_path
                 return
             self.send_response(405)
             self.end_headers()
 
         def do_PATCH(self) -> None:  # noqa: N802
-            if self.path.startswith("/api/"):
-                api.do_PATCH(self)
+            if is_api_request_path(self.path):
+                original_path = self.path
+                try:
+                    self.path = normalize_public_path(self.path)
+                    api.do_PATCH(self)
+                finally:
+                    self.path = original_path
                 return
             self.send_response(405)
             self.end_headers()
 
         def do_DELETE(self) -> None:  # noqa: N802
-            if self.path.startswith("/api/"):
-                api.do_DELETE(self)
+            if is_api_request_path(self.path):
+                original_path = self.path
+                try:
+                    self.path = normalize_public_path(self.path)
+                    api.do_DELETE(self)
+                finally:
+                    self.path = original_path
                 return
             self.send_response(405)
             self.end_headers()
