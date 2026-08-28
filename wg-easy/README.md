@@ -344,3 +344,4 @@ manually reconnects. Fix by setting a keepalive:
 - https://www.duckdns.org/
 - [RFC-002: Dynamic Egress Interface Detection](/Users/davsantos/github/misc/home-lab/wg-easy/docs/RFC-002-dynamic-egress-interface.md)
 - [RFC-005: Per-Client Access Restriction (proposed)](/Users/davsantos/github/misc/home-lab/wg-easy/docs/RFC-005-per-client-access-restriction.md)
+- [RFC-008: Identity Tag Governance for Access Control (proposed)](/Users/davsantos/github/misc/home-lab/wg-easy/docs/RFC-008-identity-tag-governance-for-access-control.md)
