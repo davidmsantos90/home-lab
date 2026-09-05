@@ -50,6 +50,43 @@ This lists `username:password:level` entries (a default `localclient` user
 is created automatically). Use one of those, or add your own via that file
 and restart the container.
 
+## Alternative deployment: Proxmox LXC
+
+If you prefer a native Deluge install over the containerized stack, the current
+alternative is a dedicated Debian 13 LXC on Proxmox.
+
+Known-good shape:
+
+| Setting | Example |
+|---|---|
+| IPv4 | `192.168.1.73/24` |
+| Gateway | `192.168.1.1` |
+| DNS | `192.168.1.60` (Pi-hole) |
+| Runtime | native `deluged` + `deluge-web` services managed by systemd |
+| Config root | `/var/lib/deluged/config` |
+| Plugin path | `/var/lib/deluged/config/plugins` |
+| Download storage inside LXC | `/downloads` |
+
+Operational notes for this layout:
+
+- keep the torrent payloads on a Proxmox bind mount and expose them inside the
+  LXC as `/downloads`
+- enable Deluge RPC intentionally for remote native clients, not just the WebUI
+- keep Samba on the Proxmox host if you want to share the backing disk to the
+  rest of the LAN; it does not need to run inside the Deluge LXC
+- use the Python-version-matched YaRSS2 build from the later sections in this
+  document; do not copy an old egg from a different Python minor version
+
+Minimum validation for a native LXC deployment:
+
+```bash
+systemctl is-active deluged
+systemctl is-active deluge-web
+ss -lntp | grep 58846
+ss -lntp | grep 8112
+findmnt /downloads
+```
+
 ## Useful links
 
 - https://dev.deluge-torrent.org/wiki/UserGuide
@@ -177,6 +214,74 @@ routine `docker compose pull && docker compose up -d`. It **would** need
 redoing if the base image bumps its Python version again (e.g. 3.12 → 3.13),
 since the egg is version-specific — re-run the same steps with the new
 version's suffix if that happens.
+
+### Python 3.13 build for a native Deluge LXC
+
+The repository includes a reproducible builder pinned to the upstream revision
+used for the compatibility patch. Docker is only the local build environment;
+the resulting pure-Python egg can be copied into a native Deluge LXC:
+
+```bash
+./deluge/build-yarss2.sh
+scp deluge/dist/YaRSS2-2.1.5-py3.13.egg root@<lxc-ip>:/tmp/
+```
+
+For a Debian or Ubuntu LXC, install the modern dependencies from the OS package
+manager. Do not install PyPI `atoma`; YaRSS2's custom fork remains in the egg.
+
+```bash
+apt update
+apt install -y python3-requests python3-six python3-dateutil \
+   python3-defusedxml python3-bs4 python3-soupsieve python3-html5lib \
+   python3-webencodings
+```
+
+Confirm the service user and config path before installing. Debian's packaged
+service commonly uses `debian-deluged` and `/var/lib/deluged/config`, but a
+manually created unit may differ:
+
+```bash
+systemctl show deluged -p User -p ExecStart
+python3 --version
+```
+
+If those defaults match the unit, install the egg and remove older Python-tagged
+copies so Deluge cannot select the wrong one:
+
+```bash
+install -d -o debian-deluged -g debian-deluged \
+   /var/lib/deluged/config/plugins
+find /var/lib/deluged/config/plugins -maxdepth 1 \
+   -name 'YaRSS2-2.1.5-py3.*.egg' -delete
+install -m 0644 -o debian-deluged -g debian-deluged \
+   /tmp/YaRSS2-2.1.5-py3.13.egg \
+   /var/lib/deluged/config/plugins/
+systemctl restart deluged
+journalctl -u deluged -n 100 --no-pager | grep -iE 'yarss|plugin|error'
+```
+
+Restart `deluge-web` as well if it runs as a separate service. The daemon and
+any GTK thin client both need a YaRSS2 egg matching their own Python minor
+version for their respective plugin halves to load.
+
+## Proxmox automation direction
+
+The preferred future automation for the native Deluge LXC is:
+
+1. Create or reuse the LXC with static networking and the `/downloads` bind
+   mount.
+2. Install the Deluge packages and converge the systemd units/overrides.
+3. Ensure the daemon config directory is writable by the service user.
+4. Install a Python-compatible YaRSS2 egg from
+   [`build-yarss2.sh`](/Users/davsantos/github/misc/home-lab/deluge/build-yarss2.sh).
+5. Validate RPC, WebUI, filesystem access and a real download/completed move.
+
+Keep that automation conservative:
+
+- do not overwrite a working Deluge config without backing it up first
+- do not assume Proxmox host paths match the LXC paths
+- do not attempt automatic YaRSS2 feed/subscription import until there is a
+  reliable non-destructive migration path
 
 ### Known limitation: no Web UI configuration panel
 

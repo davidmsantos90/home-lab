@@ -55,6 +55,44 @@ home-lab/
 - Docker + Docker Compose v2
 - A [Tailscale](https://tailscale.com/) account
 
+## Alternative Proxmox / LXC deployments
+
+The Raspberry Pi remains the network/control-plane host for:
+
+- [Pi-hole](/Users/davsantos/github/misc/home-lab/pihole)
+- [Nginx Proxy Manager](/Users/davsantos/github/misc/home-lab/nginx-proxy-manager)
+- [wg-easy](/Users/davsantos/github/misc/home-lab/wg-easy)
+
+Heavier application workloads can instead live on a separate Proxmox host in
+their own LXCs. The current documented alternatives are:
+
+| Service | Example LXC IPv4 | Runtime in LXC | Why move it |
+|---|---|---|---|
+| Immich | `192.168.1.72` | Docker Compose inside Debian 13 LXC | offload DB/app work from the Pi |
+| Jellyfin | `192.168.1.71` | native Debian package inside Debian 13 LXC | Intel iGPU / Quick Sync transcoding |
+| Deluge | `192.168.1.73` | native Debian package inside Debian 13 LXC | simpler plugin compatibility and external-disk mounts |
+
+Important: the Docker `homelab` bridge is local to each Docker host. If NPM is
+running on the Raspberry Pi and a service is running in a Proxmox LXC, NPM
+must target that service by its LAN IP or by a Pi-hole local DNS record such as
+`jellyfin.home.arpa` — not by a container name from the Proxmox host.
+
+Preferred automation direction for these LXC-based alternatives:
+
+1. **Phase 1 (Proxmox host):** create or reuse the LXC, configure static
+   networking, attach any bind mounts or GPU devices, and start the container.
+2. **Phase 2 (inside the LXC):** install packages/runtime, clone or update this
+   repository when applicable, write environment/config files, start the
+   service, and run validation checks.
+
+Keep this automation idempotent and conservative:
+
+- centralize variables such as CT ID, IP, DNS, bridge, storage and media paths
+- do not automatically modify Pi-hole or NPM
+- do not store application passwords or API tokens in Git
+- stop before interactive application setup when secrets or one-time UI flows
+  are required
+
 ## Relocating a service's data (`HOME_LAB_DIR`)
 
 Every service exposes a `HOME_LAB_DIR` environment variable (in its `.env.example`)
@@ -241,6 +279,15 @@ For services running **on the host** (not yet in Docker), use the `homelab` brid
 | Plex | `192.168.100.1` | `32400` |
 
 The gateway is pinned to `192.168.100.1` by the subnet in `compose.yaml`. Once a service is migrated to Docker, switch its upstream to the container name.
+
+For services moved off the Raspberry Pi and into Proxmox LXCs, use Pi-hole
+local DNS records or fixed LXC IPs instead:
+
+| Service (Proxmox LXC) | Preferred upstream host | Upstream port |
+|---|---|---|
+| Jellyfin | `jellyfin.home.arpa` | `8096` |
+| Immich | `immich.home.arpa` or `192.168.1.72` | `2283` |
+| Deluge WebUI | `deluge.home.arpa` or `192.168.1.73` | `8112` |
 
 ### Consistent URLs across LAN and Tailnet
 

@@ -51,6 +51,38 @@ ls /dev/dri   # Intel/AMD
 nvidia-smi    # NVIDIA
 ```
 
+## Alternative deployment: Proxmox LXC
+
+For hardware transcoding, Jellyfin is often a better fit for its own Proxmox
+LXC than for the Raspberry Pi Docker host.
+
+Known-good shape:
+
+| Setting | Example |
+|---|---|
+| LXC ID | `101` |
+| OS | Debian 13 |
+| IPv4 | `192.168.1.71/24` |
+| Gateway | `192.168.1.1` |
+| DNS | `192.168.1.60` (Pi-hole) |
+| Runtime | native Jellyfin packages inside the LXC |
+| Media path | bind-mounted media root exposed inside the LXC |
+
+Why this layout works well:
+
+- Intel Quick Sync can be passed through from the Proxmox host to the LXC
+- the media stack is isolated from the Raspberry Pi control-plane services
+- NPM on the Pi can still publish Jellyfin by proxying to the LXC over the LAN
+
+Notes:
+
+- when using Intel iGPU passthrough, pass `/dev/dri` into the LXC and discover
+  the render group dynamically during provisioning instead of hard-coding a GID
+- use Pi-hole local DNS for the LXC itself and for any local name you want NPM
+  to target, for example `jellyfin.home.arpa`
+- themes, plugin selection and first-run library setup are still better kept as
+  manual application-level steps
+
 ### 2. Plugins (extend functionality)
 
 Install via **Dashboard → Plugins → Catalogue**. Recommended:
@@ -96,7 +128,7 @@ Add a proxy host in NPM:
 |---|---|
 | Domain | `jellyfin.pimlicoa.duckdns.org` |
 | Scheme | `http` |
-| Upstream host | `app-jellyfin` |
+| Upstream host | `app-jellyfin` on the Pi Docker host, or `jellyfin.home.arpa` / `192.168.1.71` for a Proxmox LXC |
 | Upstream port | `8096` |
 | SSL cert | `*.pimlicoa.duckdns.org` (wildcard) |
 
@@ -114,6 +146,31 @@ jellyfin.pimlicoa.duckdns.org → pimlicoa.duckdns.org
 3. Add media libraries pointing at `/media` (already mounted from `JELLYFIN_MEDIA_PATH`)
 4. Enable hardware transcoding (Dashboard → Playback → Transcoding)
 5. Install desired plugins (Dashboard → Plugins → Catalogue)
+
+## Proxmox automation direction
+
+Preferred automation is shell-based and split into two phases:
+
+1. On the Proxmox host, create or reuse the LXC, configure static networking,
+   add the GPU/media mounts, and start the guest.
+2. Inside the LXC, install Jellyfin, enable the service, configure repository
+   keys/packages, and run validation.
+
+Keep this automation conservative:
+
+- detect the current render group instead of hard-coding it
+- validate `/dev/dri` visibility before considering hardware transcoding ready
+- do not automatically run expensive media-analysis jobs during provisioning
+- do not automatically configure NPM, Pi-hole, themes or interactive plugins
+
+Minimum validation after provisioning:
+
+```bash
+systemctl is-active jellyfin
+getent group render
+ls -l /dev/dri
+curl -I http://127.0.0.1:8096
+```
 
 ## Migrating from Plex
 
