@@ -1,0 +1,36 @@
+services:
+  # Mealie
+  application:
+    image: ${IMAGE_URL}
+    container_name: app-${SERVICE}
+
+    environment:
+      PUID: ${PUID}
+      PGID: ${PGID}
+      TZ: ${TZ}
+      BASE_URL: ${BASE_URL}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP}
+      DB_ENGINE: sqlite
+
+    volumes:
+      - ${MEALIE_DATA_PATH:-${HOME_LAB_DIR:-.}/mealie-data}:/app/data
+
+    ports:
+      - "0.0.0.0:${SERVICEPORT}:9000/tcp"
+
+    deploy:
+      resources:
+        limits:
+          memory: ${MEMORY_LIMIT}
+
+    networks:
+      default: {}
+      homelab: {}
+
+    restart: unless-stopped
+
+networks:
+  default:
+    name: mealie_internal
+  homelab:
+    external: true

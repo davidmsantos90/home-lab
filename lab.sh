@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-ALL_SERVICES=(nginx-proxy-manager pihole immich portainer deluge plex jellyfin wg-easy app-shell)
+ALL_SERVICES=(nginx-proxy-manager pihole immich portainer deluge plex jellyfin mealie wg-easy app-shell)
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'

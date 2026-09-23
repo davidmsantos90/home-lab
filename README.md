@@ -34,6 +34,10 @@ home-lab/
 │   ├── compose.yaml
 │   ├── .env
 │   └── README.md
+├── mealie/
+│   ├── compose.yaml
+│   ├── .env
+│   └── README.md
 ```
 
 ## Services
@@ -46,6 +50,7 @@ home-lab/
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
 | **Jellyfin** | `8096` | `https://jellyfin.pimlicoa.duckdns.org` |
+| **Mealie** | `9925` | `https://mealie.pimlicoa.duckdns.org` |
 | **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
 | **App Shell** | `3000` | `http://<host-ip>:3000` |
 | **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
@@ -153,7 +158,7 @@ cd nginx-proxy-manager
 docker compose up -d
 
 # Then for each other service:
-cd ../pihole   # (or immich, portainer, deluge, plex)
+cd ../pihole   # (or immich, portainer, deluge, plex, jellyfin, mealie)
 # Edit .env — at minimum set TZ and any service-specific variables
 docker compose up -d
 ```
@@ -273,6 +278,7 @@ When adding proxy hosts in NPM, use the application container/service name as th
 | Deluge | `app-deluge` | `8112` |
 | Plex | `app-plex` | `32400` |
 | Jellyfin | `app-jellyfin` | `8096` |
+| Mealie | `app-mealie` | `9000` |
 | App Shell | `app-app-shell` | `3000` |
 
 For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — bridge containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
@@ -306,6 +312,7 @@ With Pi-hole as DNS for both LAN and Tailnet, you can use the same subdomain eve
    portainer.pimlicoa.duckdns.org → pimlicoa.duckdns.org
    pihole.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
    deluge.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
+   mealie.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
    npm.pimlicoa.duckdns.org       → pimlicoa.duckdns.org
    ```
 3. **NPM**: add a proxy host for each subdomain, using the wildcard cert (`*.pimlicoa.duckdns.org`).
@@ -325,7 +332,7 @@ NPM default credentials (change on first login):
 │  wg-easy → 192.168.100.9                        │
 │  app-pihole, app-immich-server,                 │
 │  app-portainer, app-deluge, app-plex,           │
-│  app-jellyfin (dynamic IPs, unpinned)           │
+│  app-jellyfin, app-mealie (dynamic IPs)         │
 └─────────────────────────────────────────────────┘
 
 nginx-proxy-manager also publishes ports 80/443/81 directly on the host,
