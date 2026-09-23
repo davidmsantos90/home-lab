@@ -93,6 +93,9 @@ Keep this automation idempotent and conservative:
 - stop before interactive application setup when secrets or one-time UI flows
   are required
 
+See [RFC-001: Proxmox Service Provisioning Automation](/Users/davsantos/github/misc/home-lab/docs/RFC-001-proxmox-service-provisioning-automation.md)
+for the proposed future provisioning model.
+
 ## Relocating a service's data (`HOME_LAB_DIR`)
 
 Every service exposes a `HOME_LAB_DIR` environment variable (in its `.env.example`)
