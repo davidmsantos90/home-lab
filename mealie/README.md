@@ -15,6 +15,7 @@ Copy `.env.example` to `.env` and review:
 
 - `TZ`
 - `BASE_URL` (the public URL used in notifications and authentication callbacks)
+- `API_TOKEN` (an administrator token used by the optional food updater)
 - `PUID` and `PGID` (the owner of the persistent data directory)
 - `MEALIE_DATA_PATH` if data should live outside this directory
 - `MEMORY_LIMIT` (defaults to Mealie's recommended `1G`)
@@ -41,6 +42,40 @@ Open `http://<host-ip>:9925` and sign in with Mealie's initial credentials:
 
 Change the password immediately, then validate the deployment under
 **Administration > Site Settings**.
+
+## PT-PT food catalogue
+
+`update_foods_pt_pt.py` restores the PT-PT aliases and common Portuguese foods
+used by this deployment. It preserves existing food UUIDs, recipe references,
+substitutions, labels, and household assignments, and is safe to run again.
+
+Create an administrator token under **Profile > API Tokens**, add it to the
+untracked `.env`, and preview the changes:
+
+```bash
+python3 update_foods_pt_pt.py
+```
+
+Apply them after reviewing the summary:
+
+```bash
+python3 update_foods_pt_pt.py --apply
+```
+
+If the current group has no foods, `--apply` first seeds Mealie's pinned
+v3.27.0 PT-PT catalogue. The script then uses Mealie's matching v3.27.0 English
+and PT-PT seed files to add authoritative aliases. Because Mealie's upstream
+PT-PT catalogue is incomplete, remaining English names are translated and
+cached in `.food-translations-pt-PT.json`; the cache is ignored by Git and can
+be reused on subsequent runs. Curated PT-PT corrections cover ambiguous
+culinary terms, and additional Portuguese staples are created under their
+existing Mealie labels.
+
+Python 3.9 or newer and outbound HTTPS access to GitHub and Google Translate
+are required. The updater has no third-party Python package dependencies.
+
+The script reports unresolved name collisions instead of merging or deleting
+foods. Take a Mealie backup before the first `--apply` run.
 
 ## Reverse proxy
 
