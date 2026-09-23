@@ -61,6 +61,7 @@ def is_api_request_path(path: str) -> bool:
             "/api/groups",
             "/api/services",
             "/api/rules",
+            "/api/rule-editors",
             "/api/preview",
             "/api/v1/",
         )

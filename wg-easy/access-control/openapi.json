@@ -248,7 +248,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/AccessControlRule"
+                    "$ref": "#/components/schemas/AccessControlRuleItem"
                   }
                 }
               }
@@ -282,15 +282,15 @@
         }
       }
     },
-    "/api/rules/{ruleIndex}": {
+    "/api/rules/{ruleId}": {
       "get": {
         "operationId": "getAccessControlRule",
         "parameters": [
           {
-            "name": "ruleIndex",
+            "name": "ruleId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
@@ -310,10 +310,10 @@
         "operationId": "replaceAccessControlRule",
         "parameters": [
           {
-            "name": "ruleIndex",
+            "name": "ruleId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": { "type": "string" }
           }
         ],
         "requestBody": {
@@ -343,10 +343,10 @@
         "operationId": "patchAccessControlRule",
         "parameters": [
           {
-            "name": "ruleIndex",
+            "name": "ruleId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": { "type": "string" }
           }
         ],
         "requestBody": {
@@ -376,15 +376,106 @@
         "operationId": "deleteAccessControlRule",
         "parameters": [
           {
-            "name": "ruleIndex",
+            "name": "ruleId",
             "in": "path",
             "required": true,
-            "schema": { "type": "integer" }
+            "schema": { "type": "string" }
           }
         ],
         "responses": {
           "204": {
             "description": "Policy rule deleted"
+          }
+        }
+      }
+    },
+    "/api/rule-editors": {
+      "get": {
+        "operationId": "getAccessControlRuleEditors",
+        "responses": {
+          "200": {
+            "description": "Resolved policy rules for editing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/AccessControlRuleEditorItem" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createAccessControlRuleEditor",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AccessControlRuleEditor" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Created policy rule editor model",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AccessControlRuleEditorItem" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/rule-editors/{ruleId}": {
+      "get": {
+        "operationId": "getAccessControlRuleEditor",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resolved policy rule for editing",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AccessControlRuleEditorItem" }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "replaceAccessControlRuleEditor",
+        "parameters": [
+          {
+            "name": "ruleId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AccessControlRuleEditor" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated policy rule editor model",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AccessControlRuleEditorItem" }
+              }
+            }
           }
         }
       }
@@ -717,9 +808,37 @@
             "type": "string",
             "enum": ["tcp", "udp"]
           },
-          "port": { "type": "integer" }
+          "port": { "type": "integer" },
+          "bidirectional": { "type": "boolean" }
         },
         "additionalProperties": true
+      },
+      "AccessControlServiceSelector": {
+        "oneOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "bidirectional": { "type": "boolean" }
+            },
+            "additionalProperties": true
+          },
+          {
+            "type": "object",
+            "required": ["protocol", "port"],
+            "properties": {
+              "protocol": {
+                "type": "string",
+                "enum": ["tcp", "udp"]
+              },
+              "port": { "type": "integer" },
+              "bidirectional": { "type": "boolean" }
+            },
+            "additionalProperties": true
+          }
+        ]
       },
       "AccessControlAliasCatalog": {
         "type": "object",
@@ -755,6 +874,7 @@
         "type": "object",
         "required": ["action"],
         "properties": {
+          "id": { "type": "string" },
           "source": {
             "type": "array",
             "items": { "type": "string" }
@@ -765,7 +885,9 @@
           },
           "service": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "$ref": "#/components/schemas/AccessControlServiceSelector"
+            }
           },
           "protocol": {
             "type": "string",
@@ -779,6 +901,52 @@
           "comment": { "type": "string" }
         },
         "additionalProperties": true
+      },
+      "AccessControlRuleService": {
+        "type": "object",
+        "required": ["entries"],
+        "properties": {
+          "name": { "type": "string" },
+          "entries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlServiceEntry" }
+          },
+          "bidirectional": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlRuleEditor": {
+        "type": "object",
+        "required": ["source", "destination", "action", "services"],
+        "properties": {
+          "source": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "destination": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "action": {
+            "type": "string",
+            "enum": ["allow", "deny", "drop", "reject"]
+          },
+          "comment": { "type": "string" },
+          "services": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AccessControlRuleService" }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AccessControlRuleEditorItem": {
+        "type": "object",
+        "required": ["id", "rule"],
+        "properties": {
+          "id": { "type": "string" },
+          "rule": { "$ref": "#/components/schemas/AccessControlRuleEditor" }
+        },
+        "additionalProperties": false
       },
       "AccessControlCompiledState": {
         "type": "object",
@@ -945,6 +1113,7 @@
             "enum": ["tcp", "udp"]
           },
           "port": { "type": "integer" },
+          "bidirectional": { "type": "boolean" },
           "entries": {
             "type": "array",
             "items": { "$ref": "#/components/schemas/AccessControlServiceEntry" }
@@ -965,9 +1134,9 @@
       },
       "AccessControlRuleItem": {
         "type": "object",
-        "required": ["index", "rule"],
+        "required": ["id", "rule"],
         "properties": {
-          "index": { "type": "integer" },
+          "id": { "type": "string" },
           "rule": { "$ref": "#/components/schemas/AccessControlRule" }
         },
         "additionalProperties": false

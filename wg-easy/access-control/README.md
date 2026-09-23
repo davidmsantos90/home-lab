@@ -65,7 +65,7 @@ Endpoints:
 - `/api/aliases`
 - `/api/policies`
 - `/api/rules`
-- `/api/rules/{ruleIndex}`
+- `/api/rules/{ruleId}`
 - `/api/groups`
 - `/api/groups/{groupName}`
 - `/api/services`
@@ -175,11 +175,16 @@ In `source` and `destination` fields, you can use:
   - `deny`/`drop` silently drops packets
   - `reject` actively rejects packets (TCP uses reset for faster failures)
 - `comment` — optional rule comment preserved in runtime firewall rules when supported
+
 All access-control rules apply to NEW connections only; established and related
 traffic is accepted by the firewall state rule before policy evaluation.
 VPN infrastructure traffic (currently wg0 DNS forwarded to Pi-hole at
 `DNSMASQ_IP:5353`) is handled outside `policies.json` in a dedicated
 infrastructure chain, so peer policies do not need Docker-network destinations.
+
+The `bidirectional` flag is associated with a specific service selector (or a
+protocol/port selector), not with the whole rule. This lets a rule cover
+multiple ports/services while only mirroring some of them.
 
 ### Examples
 
@@ -187,6 +192,23 @@ infrastructure chain, so peer policies do not need Docker-network destinations.
 [
   { "source": ["family"], "destination": ["raspberry"], "service": ["ssh"], "action": "reject", "comment": "Block SSH to Raspberry" },
   { "source": ["iphone"], "destination": ["macbook"], "action": "deny" },
-  { "source": ["macbook"], "destination": ["phone"], "action": "allow" }
+  {
+    "source": ["macbook"],
+    "destination": ["phone"],
+    "action": "allow",
+    "service": [
+      { "name": "ssh", "bidirectional": true },
+      "minecraft"
+    ]
+  },
+  {
+    "source": ["dams-s23"],
+    "destination": ["little-pi4"],
+    "action": "allow",
+    "service": [
+      { "protocol": "tcp", "port": 8022, "bidirectional": true },
+      { "protocol": "udp", "port": 5353 }
+    ]
+  }
 ]
 ```

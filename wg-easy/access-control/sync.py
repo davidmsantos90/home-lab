@@ -22,6 +22,7 @@ import sys
 import tempfile
 import urllib.error
 import urllib.request
+import uuid
 from http.cookiejar import CookieJar
 
 from api import AccessControlApiService, serve_api
@@ -124,6 +125,17 @@ def load_json_array(path: pathlib.Path) -> list:
     return data
 
 
+def is_wildcard_selector(value) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, list):
+        return any(is_wildcard_selector(item) for item in value)
+    if not isinstance(value, str):
+        return False
+    selector = value.strip()
+    return selector == "*" or selector in {"0.0.0.0/0", "::/0"}
+
+
 def normalize_policy_rules(rules: list) -> list[dict]:
     if not isinstance(rules, list):
         raise SystemExit("Policy file must contain a JSON array")
@@ -132,9 +144,16 @@ def normalize_policy_rules(rules: list) -> list[dict]:
         if not isinstance(rule, dict):
             raise SystemExit(f"Policy rule at index {index} must be a JSON object")
         normalized_rule = dict(rule)
-        # Temporary backward compatibility for older clients sending scalar selectors.
-        # Remove this once all callers send array-only source/destination/service fields.
-        for key in ("source", "destination", "service"):
+        rule_id = normalized_rule.get("id")
+        if rule_id is None:
+            normalized_rule["id"] = str(uuid.uuid4())
+        elif not isinstance(rule_id, str) or not rule_id.strip():
+            raise SystemExit(f"Policy rule at index {index} id must be a non-empty string")
+        if "bidirectional" in normalized_rule:
+            raise SystemExit(
+                f"Policy rule at index {index} bidirectional must be set on a service selector"
+            )
+        for key in ("source", "destination"):
             value = normalized_rule.get(key)
             if value is None:
                 continue
@@ -150,6 +169,33 @@ def normalize_policy_rules(rules: list) -> list[dict]:
             raise SystemExit(
                 f"Policy rule at index {index} field {key} must be a string array"
             )
+        service_value = normalized_rule.get("service")
+        if service_value is not None:
+            if isinstance(service_value, str):
+                normalized_rule["service"] = [service_value]
+            elif isinstance(service_value, list):
+                normalized_rule["service"] = [
+                    item if isinstance(item, dict) else item
+                    for item in service_value
+                ]
+                for item in normalized_rule["service"]:
+                    if isinstance(item, dict):
+                        bidirectional_flag = item.get("bidirectional")
+                        if bidirectional_flag is not None and not isinstance(bidirectional_flag, bool):
+                            raise SystemExit(f"Policy rule at index {index} service entry bidirectional must be a boolean")
+                        if "name" in item and not isinstance(item["name"], str):
+                            raise SystemExit(f"Policy rule at index {index} service entry name must be a string")
+                        if "protocol" in item or "port" in item:
+                            if not isinstance(item.get("protocol"), str) or not item.get("protocol", "").strip():
+                                raise SystemExit(f"Policy rule at index {index} service entry protocol must be a string")
+                            if item.get("port") is None:
+                                raise SystemExit(f"Policy rule at index {index} service entry port is required")
+                    elif not isinstance(item, str):
+                        raise SystemExit(f"Policy rule at index {index} service must be a string or object")
+            else:
+                raise SystemExit(
+                    f"Policy rule at index {index} field 'service' must be a string or object array"
+                )
         normalized_rules.append(normalized_rule)
     return normalized_rules
 
@@ -302,12 +348,16 @@ def normalize_service_entries(value, service_name: str) -> list[dict]:
             normalized_port = int(port)
         except (TypeError, ValueError) as exc:
             raise SystemExit(f"Service {service_name} port must be an integer") from exc
-        normalized.append(
-            {
-                "protocol": protocol.strip().lower(),
-                "port": normalized_port,
-            }
-        )
+        normalized_entry = {
+            "protocol": protocol.strip().lower(),
+            "port": normalized_port,
+        }
+        bidirectional = entry.get("bidirectional")
+        if bidirectional is not None:
+            if not isinstance(bidirectional, bool):
+                raise SystemExit(f"Service {service_name} bidirectional must be a boolean")
+            normalized_entry["bidirectional"] = bidirectional
+        normalized.append(normalized_entry)
     return normalized
 
 
@@ -500,15 +550,18 @@ def protocol_variants(protocol: str | None, port: int | None) -> list[str | None
 def service_selector_values(selector, services: dict[str, list[dict]]) -> list[dict]:
     if selector is None:
         return []
+
     def dedupe(entries: list[dict]) -> list[dict]:
         deduped: list[dict] = []
-        seen: set[tuple[str, int]] = set()
+        seen: dict[tuple[str, int], dict] = {}
         for entry in entries:
             key = (entry["protocol"], entry["port"])
-            if key in seen:
+            if key not in seen:
+                seen[key] = dict(entry)
+                deduped.append(seen[key])
                 continue
-            seen.add(key)
-            deduped.append(entry)
+            existing = seen[key]
+            existing["bidirectional"] = bool(existing.get("bidirectional") or entry.get("bidirectional", False))
         return deduped
 
     if isinstance(selector, list):
@@ -516,11 +569,39 @@ def service_selector_values(selector, services: dict[str, list[dict]]) -> list[d
         for item in selector:
             expanded.extend(service_selector_values(item, services))
         return dedupe(expanded)
+    if isinstance(selector, dict):
+        if "name" in selector:
+            service_name = selector["name"]
+            if not isinstance(service_name, str):
+                raise SystemExit('Service selector "name" must be a string')
+            entries = service_selector_values(service_name, services)
+            bidirectional = selector.get("bidirectional", False)
+            if not isinstance(bidirectional, bool):
+                raise SystemExit("Service selector 'bidirectional' must be a boolean")
+            if bidirectional:
+                return [{**entry, "bidirectional": True} for entry in entries]
+            return entries
+        if "protocol" in selector or "port" in selector:
+            protocol = selector.get("protocol")
+            port = selector.get("port")
+            if not isinstance(protocol, str) or not protocol.strip():
+                raise SystemExit("Service selector must define protocol")
+            if port is None:
+                raise SystemExit("Service selector must define port")
+            try:
+                normalized_port = int(port)
+            except (TypeError, ValueError) as exc:
+                raise SystemExit(f"Invalid service selector port: {port!r}") from exc
+            bidirectional = selector.get("bidirectional", False)
+            if not isinstance(bidirectional, bool):
+                raise SystemExit("Service selector 'bidirectional' must be a boolean")
+            return [{"protocol": protocol.strip().lower(), "port": normalized_port, "bidirectional": bidirectional}]
+        raise SystemExit(f"Unsupported service selector object: {selector!r}")
     if not isinstance(selector, str):
         raise SystemExit(f"Unsupported service selector type: {selector!r}")
     if selector not in services:
         raise SystemExit(f"Unknown service alias: {selector}")
-    return dedupe(list(services[selector]))
+    return dedupe([{**entry, "bidirectional": bool(entry.get("bidirectional", False))} for entry in services[selector]])
 
 
 def rule_to_iptables(
@@ -556,7 +637,11 @@ def rule_to_iptables(
             normalized_port = None
         match_specs = []
         for protocol in protocol_variants(rule.get("protocol"), normalized_port):
-            match_specs.append({"protocol": protocol, "port": normalized_port})
+            match_specs.append({"protocol": protocol, "port": normalized_port, "bidirectional": bool(rule.get("bidirectional", False))})
+
+    if any(spec.get("bidirectional", False) for spec in match_specs):
+        if is_wildcard_selector(rule.get("source")) or is_wildcard_selector(rule.get("destination")):
+            raise SystemExit("Bidirectional rules cannot use wildcard selectors for source or destination")
 
     comment = rule.get("comment")
     if comment is not None and not isinstance(comment, str):
@@ -582,30 +667,34 @@ def rule_to_iptables(
     for source_match in selector_clauses("src", sources):
         for destination_match in selector_clauses("dst", destinations):
             for spec in match_specs:
-                command = [
-                    "-t",
-                    "filter",
-                    "-A",
-                    CHAIN_NAME,
-                ]
-                command += source_match
-                command += destination_match
-                if spec["protocol"] is not None:
-                    command += ["-p", spec["protocol"]]
-                if spec["port"] is not None:
-                    command += ["--dport", str(spec["port"])]
-                command += NEW_CONN_MATCH
-                if comment is not None:
-                    command += ["-m", "comment", "--comment", comment]
-                if action == "allow":
-                    command += ["-j", "ACCEPT"]
-                elif action in {"deny", "drop"}:
-                    command += ["-j", "DROP"]
-                else:
-                    command += ["-j", "REJECT"]
-                    if spec["protocol"] == "tcp":
-                        command += ["--reject-with", "tcp-reset"]
-                commands.append(command)
+                variants = [(source_match, destination_match)]
+                if spec.get("bidirectional", False):
+                    variants.append((destination_match, source_match))
+                for left_match, right_match in variants:
+                    command = [
+                        "-t",
+                        "filter",
+                        "-A",
+                        CHAIN_NAME,
+                    ]
+                    command += left_match
+                    command += right_match
+                    if spec["protocol"] is not None:
+                        command += ["-p", spec["protocol"]]
+                    if spec["port"] is not None:
+                        command += ["--dport", str(spec["port"])]
+                    command += NEW_CONN_MATCH
+                    if comment is not None:
+                        command += ["-m", "comment", "--comment", comment]
+                    if action == "allow":
+                        command += ["-j", "ACCEPT"]
+                    elif action in {"deny", "drop"}:
+                        command += ["-j", "DROP"]
+                    else:
+                        command += ["-j", "REJECT"]
+                        if spec["protocol"] == "tcp":
+                            command += ["--reject-with", "tcp-reset"]
+                    commands.append(command)
     return commands
 
 
@@ -801,21 +890,32 @@ def get_access_control_peer(policy_path: pathlib.Path, aliases_path: pathlib.Pat
     raise KeyError(name)
 
 
-def rule_item_from_rules(rules: list[dict], index: int) -> dict:
-    if index < 0 or index >= len(rules):
-        raise KeyError(index)
+def rule_item_from_rule(rule: dict) -> dict:
     return {
-        "index": index,
-        "rule": rules[index],
+        "id": rule["id"],
+        "rule": rule,
     }
 
 
+def find_rule_index(rules: list[dict], rule_id: str) -> int:
+    for index, rule in enumerate(rules):
+        if rule.get("id") == rule_id:
+            return index
+    raise KeyError(rule_id)
+
+
 def list_access_control_rules(policy_path: pathlib.Path) -> list[dict]:
-    return load_access_control_policy_document(policy_path)
+    effective_policy_path = resolve_effective_config_path(policy_path)
+    raw_rules = load_json_array(effective_policy_path)
+    rules = normalize_policy_rules(raw_rules)
+    if any("id" not in rule for rule in raw_rules):
+        save_access_control_policy_document(policy_path, rules)
+    return rules
 
 
-def get_access_control_rule(policy_path: pathlib.Path, index: int) -> dict:
-    return rule_item_from_rules(list_access_control_rules(policy_path), index)
+def get_access_control_rule(policy_path: pathlib.Path, rule_id: str) -> dict:
+    rules = list_access_control_rules(policy_path)
+    return rule_item_from_rule(rules[find_rule_index(rules, rule_id)])
 
 
 def store_access_control_rules(policy_path: pathlib.Path, rules: list[dict]) -> list[dict]:
@@ -830,29 +930,137 @@ def create_access_control_rule(policy_path: pathlib.Path, payload: dict) -> dict
     normalized_rule = normalize_policy_rules([payload])[0]
     rules.append(normalized_rule)
     updated_rules = store_access_control_rules(policy_path, rules)
-    return rule_item_from_rules(updated_rules, len(updated_rules) - 1)
+    return rule_item_from_rule(updated_rules[-1])
 
 
-def update_access_control_rule(policy_path: pathlib.Path, index: int, payload: dict, *, merge: bool = False) -> dict:
+def update_access_control_rule(policy_path: pathlib.Path, rule_id: str, payload: dict, *, merge: bool = False) -> dict:
     if not isinstance(payload, dict):
         raise SystemExit("Rule payload must be a JSON object")
     rules = list_access_control_rules(policy_path)
-    if index < 0 or index >= len(rules):
-        raise KeyError(index)
+    index = find_rule_index(rules, rule_id)
     next_rule = dict(rules[index]) if merge else {}
     next_rule.update(payload)
+    next_rule["id"] = rule_id
     normalized_rule = normalize_policy_rules([next_rule])[0]
     rules[index] = normalized_rule
     updated_rules = store_access_control_rules(policy_path, rules)
-    return rule_item_from_rules(updated_rules, index)
+    return rule_item_from_rule(updated_rules[index])
 
 
-def delete_access_control_rule(policy_path: pathlib.Path, index: int) -> None:
+def delete_access_control_rule(policy_path: pathlib.Path, rule_id: str) -> None:
     rules = list_access_control_rules(policy_path)
-    if index < 0 or index >= len(rules):
-        raise KeyError(index)
+    index = find_rule_index(rules, rule_id)
     del rules[index]
     store_access_control_rules(policy_path, rules)
+
+
+def rule_editor_from_rule(rule: dict, services: dict[str, list[dict]]) -> dict:
+    editor_rule = {
+        "source": rule.get("source", []),
+        "destination": rule.get("destination", []),
+        "action": rule["action"],
+        "services": [],
+    }
+    if "comment" in rule:
+        editor_rule["comment"] = rule["comment"]
+
+    selectors = rule.get("service", [])
+    if not selectors and ("protocol" in rule or "port" in rule):
+        selectors = [{"protocol": rule.get("protocol"), "port": rule.get("port")}]
+
+    for selector in selectors:
+        if isinstance(selector, str):
+            service_name = selector
+            bidirectional = False
+        elif isinstance(selector, dict) and isinstance(selector.get("name"), str):
+            service_name = selector["name"]
+            bidirectional = bool(selector.get("bidirectional", False))
+        elif isinstance(selector, dict):
+            editor_rule["services"].append(
+                {"entries": normalize_service_entries(selector, "inline rule service")}
+            )
+            continue
+        else:
+            raise SystemExit("Rule service selectors must be strings or objects")
+
+        if service_name not in services:
+            raise SystemExit(f"Unknown service alias: {service_name}")
+        editor_service = {
+            "name": service_name,
+            "entries": services[service_name],
+        }
+        if bidirectional:
+            editor_service["bidirectional"] = True
+        editor_rule["services"].append(editor_service)
+
+    return editor_rule
+
+
+def rule_from_editor(payload: dict, services: dict[str, list[dict]]) -> dict:
+    if not isinstance(payload, dict):
+        raise SystemExit("Rule editor payload must be a JSON object")
+    editor_services = payload.get("services")
+    if not isinstance(editor_services, list) or not editor_services:
+        raise SystemExit("Rule editor payload must contain at least one service")
+
+    rule = {
+        "source": payload.get("source"),
+        "destination": payload.get("destination"),
+        "action": payload.get("action"),
+        "service": [],
+    }
+    if "comment" in payload:
+        rule["comment"] = payload["comment"]
+
+    for editor_service in editor_services:
+        if not isinstance(editor_service, dict):
+            raise SystemExit("Rule editor services must be objects")
+        service_name = editor_service.get("name")
+        if isinstance(service_name, str):
+            if service_name not in services:
+                raise SystemExit(f"Unknown service alias: {service_name}")
+            if editor_service.get("bidirectional", False):
+                if not isinstance(editor_service["bidirectional"], bool):
+                    raise SystemExit("Rule editor service bidirectional must be a boolean")
+                rule["service"].append({"name": service_name, "bidirectional": True})
+            else:
+                rule["service"].append(service_name)
+            continue
+        if service_name is not None:
+            raise SystemExit("Rule editor service name must be a string")
+
+        entries = normalize_service_entries(editor_service, "inline rule service")
+        rule["service"].extend(entries)
+
+    return normalize_policy_rules([rule])[0]
+
+
+def list_access_control_rule_editors(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> list[dict]:
+    services = aliases_document_services(load_access_control_aliases_document(aliases_path))
+    return [
+        {"id": rule["id"], "rule": rule_editor_from_rule(rule, services)}
+        for rule in list_access_control_rules(policy_path)
+    ]
+
+
+def get_access_control_rule_editor(policy_path: pathlib.Path, aliases_path: pathlib.Path, rule_id: str) -> dict:
+    editors = list_access_control_rule_editors(policy_path, aliases_path)
+    for editor in editors:
+        if editor["id"] == rule_id:
+            return editor
+    raise KeyError(rule_id)
+
+
+def create_access_control_rule_editor(policy_path: pathlib.Path, aliases_path: pathlib.Path, payload: dict) -> dict:
+    services = aliases_document_services(load_access_control_aliases_document(aliases_path))
+    created = create_access_control_rule(policy_path, rule_from_editor(payload, services))
+    return {"id": created["id"], "rule": rule_editor_from_rule(created["rule"], services)}
+
+
+def update_access_control_rule_editor(policy_path: pathlib.Path, aliases_path: pathlib.Path, rule_id: str, payload: dict) -> dict:
+    services = aliases_document_services(load_access_control_aliases_document(aliases_path))
+    updated = update_access_control_rule(policy_path, rule_id, rule_from_editor(payload, services))
+    return {"id": updated["id"], "rule": rule_editor_from_rule(updated["rule"], services)}
 
 
 def aliases_document_groups(aliases: dict[str, dict]) -> dict[str, list[str]]:
@@ -1156,10 +1364,14 @@ def build_api_service(policy_path: pathlib.Path, aliases_path: pathlib.Path) -> 
         list_peers=lambda: list_access_control_peers(policy_path, aliases_path),
         get_peer=lambda name: get_access_control_peer(policy_path, aliases_path, name),
         list_rules=lambda: list_access_control_rules(policy_path),
-        get_rule=lambda index: get_access_control_rule(policy_path, index),
+        get_rule=lambda rule_id: get_access_control_rule(policy_path, rule_id),
         create_rule=lambda payload: create_access_control_rule(policy_path, payload),
-        update_rule=lambda index, payload, merge=False: update_access_control_rule(policy_path, index, payload, merge=merge),
-        delete_rule=lambda index: delete_access_control_rule(policy_path, index),
+        update_rule=lambda rule_id, payload, merge=False: update_access_control_rule(policy_path, rule_id, payload, merge=merge),
+        delete_rule=lambda rule_id: delete_access_control_rule(policy_path, rule_id),
+        list_rule_editors=lambda: list_access_control_rule_editors(policy_path, aliases_path),
+        get_rule_editor=lambda rule_id: get_access_control_rule_editor(policy_path, aliases_path, rule_id),
+        create_rule_editor=lambda payload: create_access_control_rule_editor(policy_path, aliases_path, payload),
+        update_rule_editor=lambda rule_id, payload: update_access_control_rule_editor(policy_path, aliases_path, rule_id, payload),
         list_groups=lambda: list_access_control_groups(aliases_path),
         get_group=lambda name: get_access_control_group(aliases_path, name),
         create_group=lambda payload: create_access_control_group(aliases_path, payload),

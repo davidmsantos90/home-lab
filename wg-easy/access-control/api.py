@@ -24,10 +24,14 @@ class AccessControlApiService:
     list_peers: Callable[[], list[dict]]
     get_peer: Callable[[str], dict]
     list_rules: Callable[[], list[dict]]
-    get_rule: Callable[[int], dict]
+    get_rule: Callable[[str], dict]
     create_rule: Callable[[dict], dict]
-    update_rule: Callable[[int, dict, bool], dict]
-    delete_rule: Callable[[int], None]
+    update_rule: Callable[[str, dict, bool], dict]
+    delete_rule: Callable[[str], None]
+    list_rule_editors: Callable[[], list[dict]]
+    get_rule_editor: Callable[[str], dict]
+    create_rule_editor: Callable[[dict], dict]
+    update_rule_editor: Callable[[str, dict], dict]
     list_groups: Callable[[], list[dict]]
     get_group: Callable[[str], dict]
     create_group: Callable[[dict], dict]
@@ -88,11 +92,11 @@ def normalize_api_path(path: str) -> str:
 
 def split_api_path(path: str) -> tuple[str, str | None]:
     normalized = normalize_api_path(path)
-    if normalized in {"/api/peers", "/api/groups", "/api/services", "/api/rules"}:
+    if normalized in {"/api/peers", "/api/groups", "/api/services", "/api/rules", "/api/rule-editors"}:
         return normalized, None
     if normalized.startswith("/api/") and normalized.count("/") >= 3:
         head, tail = normalized.rsplit("/", 1)
-        if head in {"/api/peers", "/api/groups", "/api/services", "/api/rules"} and tail:
+        if head in {"/api/peers", "/api/groups", "/api/services", "/api/rules", "/api/rule-editors"} and tail:
             return head, tail
     return normalized, None
 
@@ -211,10 +215,19 @@ def api_handler(service: AccessControlApiService):
                     json_response(self, {"rules": state["rules"]})
                     return
                 if path == "/api/rules" and tail is None:
-                    json_response(self, service.list_rules())
+                    json_response(self, [
+                        {"id": rule["id"], "rule": rule}
+                        for rule in service.list_rules()
+                    ])
                     return
                 if head == "/api/rules" and tail is not None:
-                    json_response(self, service.get_rule(int(tail)))
+                    json_response(self, service.get_rule(tail))
+                    return
+                if path == "/api/rule-editors" and tail is None:
+                    json_response(self, service.list_rule_editors())
+                    return
+                if head == "/api/rule-editors" and tail is not None:
+                    json_response(self, service.get_rule_editor(tail))
                     return
                 if path == "/api/groups" and tail is None:
                     json_response(self, service.list_groups())
@@ -251,7 +264,7 @@ def api_handler(service: AccessControlApiService):
                 path = normalize_api_path(self.path)
                 head, tail = split_api_path(path)
                 if head == "/api/rules" and tail is not None:
-                    service.delete_rule(int(tail))
+                    service.delete_rule(tail)
                     empty_response(self)
                     return
                 if head == "/api/groups" and tail is not None:
@@ -274,7 +287,7 @@ def api_handler(service: AccessControlApiService):
                 head, tail = split_api_path(path)
                 payload = json_request(self)
                 if head == "/api/rules" and tail is not None:
-                    json_response(self, service.update_rule(int(tail), payload, True))
+                    json_response(self, service.update_rule(tail, payload, True))
                     return
                 if head == "/api/groups" and tail is not None:
                     json_response(self, service.update_group(tail, payload, True))
@@ -297,7 +310,10 @@ def api_handler(service: AccessControlApiService):
                     return
                 payload = json_request(self)
                 if head == "/api/rules" and tail is not None:
-                    json_response(self, service.update_rule(int(tail), payload, False))
+                    json_response(self, service.update_rule(tail, payload, False))
+                    return
+                if head == "/api/rule-editors" and tail is not None:
+                    json_response(self, service.update_rule_editor(tail, payload))
                     return
                 if head == "/api/groups" and tail is not None:
                     json_response(self, service.update_group(tail, payload, False))
@@ -342,6 +358,9 @@ def api_handler(service: AccessControlApiService):
                 if path == "/api/rules":
                     json_response(self, service.create_rule(payload))
                     return
+                if path == "/api/rule-editors":
+                    json_response(self, service.create_rule_editor(payload))
+                    return
                 if path == "/api/groups":
                     json_response(self, service.create_group(payload))
                     return
@@ -368,7 +387,7 @@ def serve_api(service: AccessControlApiService, host: str, port: int) -> None:
     server = ThreadingHTTPServer((host, port), api_handler(service))
     print(f"Serving access-control API on http://{host}:{port}")
     print(
-        "Available endpoints: /healthz, /openapi.json, /api/state, /api/config, /api/inventory, /api/peers, /api/aliases, /api/policies, /api/rules, /api/groups, /api/services, /api/preview, /api/config/apply"
+        "Available endpoints: /healthz, /openapi.json, /api/state, /api/config, /api/inventory, /api/peers, /api/aliases, /api/policies, /api/rules, /api/rule-editors, /api/groups, /api/services, /api/preview, /api/config/apply"
     )
     try:
         server.serve_forever()
