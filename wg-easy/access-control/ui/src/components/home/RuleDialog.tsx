@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type FC } from "react";
+import { useCallback, useMemo, type FC } from "react";
 import {
   HvButton,
   HvDialog,
@@ -6,71 +6,72 @@ import {
   HvDialogContent,
   HvDialogTitle,
   HvInput,
+  HvSwitch,
+  HvTypography,
   type HvDialogProps,
 } from "@hitachivantara/uikit-react-core";
 
-import type { AccessControlRule } from "../../api/apiSchemas";
+import { useGetAccessControlServices } from "../../api/apiComponents";
+import type {
+  AccessControlRuleEditor,
+  AccessControlRuleService,
+} from "../../api/apiSchemas";
+import useForm from "../../hooks/useForm";
+import InputPort from "../form/InputPort";
+import SelectAction from "../form/SelectAction";
 import SelectDestination from "../form/SelectDestination";
+import SelectProtocol from "../form/SelectProtocol";
 import SelectService from "../form/SelectService";
 import SelectSource from "../form/SelectSource";
-import SelectAction from "../form/SelectAction";
-import useForm from "../../hooks/useForm";
+import Separator from "../common/Separator";
+import type { NullableAccessControlAction, RuleFormState } from "../../types/accessControl";
+import Service from "../common/Service";
 
-type Action = AccessControlRule["action"] | null;
-type Protocol = AccessControlRule["protocol"];
-interface RuleFormState extends Omit<AccessControlRule, "action"> {
-  action: Action;
-};
-
-export const toFormState = (rule?: AccessControlRule): RuleFormState => {
-  const toArrayValue = (value: string | string[] | undefined) => {
-    const isArray = Array.isArray(value);
-    if (value == null || (isArray && value.length === 0)) return [];
-
-    return (isArray ? value : [value]).filter(Boolean);
-  };
-
-  const source = toArrayValue(rule?.source);
-  const destination = toArrayValue(rule?.destination);
-
-  const action = typeof rule?.action === "string" ? rule.action : null;
+export const toFormState = (rule?: AccessControlRuleEditor): RuleFormState => {
+  const action: NullableAccessControlAction =
+    typeof rule?.action === "string" ? rule.action : null;
   const comment = typeof rule?.comment === "string" ? rule.comment : "";
-  
-  const service = toArrayValue(rule?.service);
-  const protocol = typeof rule?.protocol === "string" ? rule.protocol : undefined;
-  const port =
-    typeof rule?.port === "number"
-      ? rule.port
-      : Number(rule?.port) || undefined;
+  const services = rule?.services ?? [];
+  const directService = services.find((service) => service.name == null);
+
+  const directEntry = directService?.entries[0];
 
   return {
-    source,
-    destination,
-    service,
-    protocol: service.length === 0 ? protocol : undefined,
-    port: service.length === 0 ? port : undefined,
+    source: rule?.source ?? [],
+    destination: rule?.destination ?? [],
+    services,
+    bidirectional: Boolean(directEntry?.bidirectional),
+    protocol: directEntry?.protocol,
+    port: directEntry?.port,
     action,
-    comment
+    comment,
   };
 };
 
-function toRule(formData: FormData): AccessControlRule {
-  const getArray = (name: string)  => {
+function toRule(formData: FormData, form: RuleFormState): AccessControlRuleEditor {
+  const getArray = (name: string) => {
     const value = formData.get(name);
     if (typeof value !== "string") return [];
 
     try {
       const parsed = JSON.parse(value);
       if (!Array.isArray(parsed)) return [];
-      
+
       return parsed.filter((item) => typeof item === "string");
     } catch {
       return [];
     }
   };
 
-  const action = formData.get("action") as Action;
-  if (!action) throw new Error("Action is required.");
+  const action = formData.get("action");
+  if (
+    action !== "allow" &&
+    action !== "deny" &&
+    action !== "drop" &&
+    action !== "reject"
+  ) {
+    throw new Error("Action is required.");
+  }
 
   const source = getArray("source");
   if (source.length === 0) throw new Error("Source is required.");
@@ -78,25 +79,37 @@ function toRule(formData: FormData): AccessControlRule {
   const destination = getArray("destination");
   if (destination.length === 0) throw new Error("Destination is required.");
 
-  const next: AccessControlRule = {
+  const next: AccessControlRuleEditor = {
     source,
     destination,
     action,
     comment: formData.get("comment") as string,
+    services: [],
   };
 
-  const service = getArray("service");
-  if (service.length > 0) next.service = service;
-  else {
-    next.protocol = formData.get("protocol") as Protocol;
-    next.port = Number(formData.get("port")) || 0;
+  const namedServices = form.services.filter((service) => service.name != null);
+  if (namedServices.length > 0) {
+    next.services = namedServices;
+  } else {
+    const protocol = formData.get("protocol");
+    if (protocol !== "tcp" && protocol !== "udp") {
+      throw new Error("Protocol is required.");
+    }
+
+    next.services = [{
+      entries: [{
+        protocol,
+        port: Number(formData.get("port")) || 0,
+        bidirectional: form.bidirectional,
+      }],
+    }];
   }
 
   return next;
 }
 
 interface Props extends Omit<HvDialogProps, "onClose" | "onSubmit"> {
-  rule?: AccessControlRule;
+  rule?: AccessControlRuleEditor;
 
   labels: {
     title: string;
@@ -105,7 +118,7 @@ interface Props extends Omit<HvDialogProps, "onClose" | "onSubmit"> {
   };
 
   onClose?: () => void;
-  onSubmit?: (rule: AccessControlRule) => void;
+  onSubmit?: (rule: AccessControlRuleEditor) => void;
 }
 
 const RuleDialog: FC<Props> = (props) => {
@@ -114,10 +127,11 @@ const RuleDialog: FC<Props> = (props) => {
   const { form, isDirty, setField, getField } = useForm<RuleFormState>(
     toFormState(rule),
   );
+  const { data: serviceCatalog = [] } = useGetAccessControlServices({});
   const hasService = useMemo(() => {
-    const service = getField("service");
+    const services = getField("services") as AccessControlRuleService[];
 
-    return Array.isArray(service) && service.length > 0;
+    return services.some((service) => service.name != null);
   }, [getField]);
 
   const hasPort = useMemo(() => {
@@ -136,10 +150,10 @@ const RuleDialog: FC<Props> = (props) => {
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
 
-      onSubmitProp?.(toRule(new FormData(event.currentTarget)));
+      onSubmitProp?.(toRule(new FormData(event.currentTarget), form));
       onClose?.();
     },
-    [onSubmitProp, onClose],
+    [onSubmitProp, onClose, form],
   );
 
   return (
@@ -171,7 +185,7 @@ const RuleDialog: FC<Props> = (props) => {
 
           <SelectAction
             className="sm:col-span-1"
-            defaultValue={form.action}
+            defaultValue={form.action ?? undefined}
             onChange={(action) => setField("action", action)}
           />
 
@@ -188,42 +202,77 @@ const RuleDialog: FC<Props> = (props) => {
           <SelectService
             className="sm:col-span-4 mt-xs"
             disabled={hasPort || hasProtocol}
-            defaultValue={form.service}
-            onChange={(service) => setField("service", service)}
-          />
+            defaultValue={form.services
+              .filter((service) => service.name != null)
+              .map((service) => service.name!)}
+            onChange={(serviceNames) => {
+              const selectedServices = new Map<string, AccessControlRuleService>();
+              for (const service of form.services) {
+                if (service.name != null) selectedServices.set(service.name, service);
+              }
+              setField(
+                "services",
+                serviceNames.map((name) => {
+                  const existingService = selectedServices.get(name);
+                  if (existingService) return existingService;
 
-          <div
-            className="sm:col-span-4 flex items-center gap-3"
-            role="separator"
-          >
-            <div className="flex-1 border-t b-positive" />
-            <span className="text-secondary text-sm color-positive font-bold">or</span>
-            <div className="flex-1 border-t b-positive" />
-          </div>
-
-          <HvInput
-            className="sm:col-span-2"
-            disabled={hasService}
-            label="Protocol"
-            name="protocol"
-            placeholder="tcp / udp"
-            value={form.protocol}
-            onChange={(_, value) => {
-              setField("protocol", value);
+                  const catalogService = serviceCatalog.find(
+                    (service) => service.name === name,
+                  );
+                  const entries = catalogService?.entries ??
+                    (catalogService?.protocol && catalogService.port != null
+                      ? [{
+                          protocol: catalogService.protocol,
+                          port: catalogService.port,
+                          bidirectional: catalogService.bidirectional,
+                        }]
+                      : []);
+                  return { name, entries };
+                }),
+              );
             }}
           />
-          <HvInput
-            className="sm:col-span-2"
-            disabled={hasService}
-            type="number"
-            label="Port"
-            name="port"
-            placeholder="53"
-            value={form.port}
-            onChange={(_, value) => {
-              setField("port", value);
-            }}
-          />
+
+          {hasService ? (
+            <>
+              {form.services.filter((service) => service.name != null).map((service, index) => (
+                <Service
+                  key={`${service.name}-${index}`}
+                  value={service}
+                />
+              ))}
+            </>
+          ) : (
+            <>
+              <Separator />
+
+              <SelectProtocol
+                className="sm:col-span-2"
+                disabled={hasService}
+                defaultValue={form.protocol}
+                onChange={(protocol) =>
+                  setField("protocol", protocol ?? undefined)
+                }
+              />
+
+              <InputPort
+                className="sm:col-span-1"
+                disabled={hasService}
+                defaultValue={form.port}
+                onChange={(port) => setField("port", port)}
+              />
+              <HvSwitch
+                className="sm:col-span-1"
+                name="bidirectional"
+                label="Bidirectional"
+                value="on"
+                checked={form.bidirectional}
+                onChange={(_, checked) => {
+                  setField("bidirectional", checked);
+                }}
+              />
+            </>
+          )}
         </form>
       </HvDialogContent>
       <HvDialogActions>

@@ -4,6 +4,7 @@ import type {
   AccessControlConfigDocument,
   AccessControlConfigDraft,
   AccessControlRule,
+  AccessControlServiceSelector,
   AccessControlState,
 } from "../api/apiSchemas";
 
@@ -92,9 +93,7 @@ function resolveSelectorMembers(
   aliases: AccessControlAliasCatalog,
 ) {
   return dedupe(
-    toArray(selector).flatMap(
-      (entry) => aliases.groups[entry] ?? [entry],
-    ),
+    toArray(selector).flatMap((entry) => aliases.groups[entry] ?? [entry]),
   );
 }
 
@@ -127,12 +126,31 @@ function resolveServices(
   if (!rule.service) {
     return [{ protocol: rule.protocol, port: rule.port }];
   }
-  return toArray(rule.service).flatMap((serviceName) => {
-    const entries = aliases.services[serviceName];
+  return rule.service.flatMap((service) =>
+    resolveServiceSelector(service, aliases, rule),
+  );
+}
+
+function resolveServiceSelector(
+  service: AccessControlServiceSelector,
+  aliases: AccessControlAliasCatalog,
+  rule: AccessControlRule,
+) {
+  if (typeof service === "string") {
+    const entries = aliases.services[service];
     return entries && entries.length > 0
       ? entries
       : [{ protocol: rule.protocol, port: rule.port }];
-  });
+  }
+
+  if (typeof service.name === "string") {
+    const entries = aliases.services[service.name];
+    return entries && entries.length > 0
+      ? entries
+      : [{ protocol: rule.protocol, port: rule.port }];
+  }
+
+  return [{ protocol: service.protocol, port: service.port }];
 }
 
 function buildCompiledState(

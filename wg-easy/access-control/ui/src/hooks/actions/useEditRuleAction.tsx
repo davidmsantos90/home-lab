@@ -2,11 +2,10 @@ import { useMemo } from "react";
 import { PencilIcon } from "@phosphor-icons/react";
 import { HvIconContainer } from "@hitachivantara/uikit-react-icons";
 
-import type { AccessControlRule } from "../../api/apiSchemas";
 import useEditRule, { ACTION_ID } from "../mutations/useEditRule";
 
-const useEditRuleAction = (rule: AccessControlRule, ruleIndex: number) => {
-  const { editRule, isPending } = useEditRule(rule, ruleIndex);
+const useEditRuleAction = (ruleId: string) => {
+  const { editRule, isPending } = useEditRule(ruleId);
 
   return useMemo(
     () => ({

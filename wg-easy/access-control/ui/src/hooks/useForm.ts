@@ -1,4 +1,4 @@
-import { type FC, useMemo, useRef, useState, useCallback } from "react";
+import { useCallback, useMemo, useRef, useState, type FC } from "react";
 
 const useForm = <DATA extends object>(initialValue: DATA) => {
   const initialValueRef = useRef<DATA>(initialValue);

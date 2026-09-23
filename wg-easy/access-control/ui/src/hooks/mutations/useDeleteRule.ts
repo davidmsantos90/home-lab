@@ -22,8 +22,8 @@ const useDeleteRule = () => {
   const mutation = useDeleteAccessControlRule({ onSuccess, onError });
 
   const deleteRule = useCallback(
-    (ruleIndex: number) => {
-      return mutation.mutateAsync({ pathParams: { ruleIndex } });
+    (ruleId: string) => {
+      return mutation.mutateAsync({ pathParams: { ruleId } });
     },
     [mutation],
   );

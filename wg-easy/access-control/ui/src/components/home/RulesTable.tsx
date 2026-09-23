@@ -6,41 +6,17 @@ import {
   type HvTableColumnConfig,
 } from "@hitachivantara/uikit-react-core";
 
-import { useGetAccessControlRules } from "../../api/apiComponents";
-import type { AccessControlRule } from "../../api/apiSchemas";
+import { useGetAccessControlRuleEditors } from "../../api/apiComponents";
+import type { AccessControlRuleEditor } from "../../api/apiSchemas";
 import useEditRuleAction from "../../hooks/actions/useEditRuleAction";
 import useCreateRule from "../../hooks/mutations/useCreateRule";
 import { formatSelector, formatService } from "../../lib/utils";
 import Table from "../common/Table";
 
-/*
-  <HvTableCell align="center">
-      <HvButton
-        variant="secondaryGhost"
-        disabled={saving}
-        onClick={async () => {
-          if (!window.confirm("Delete this rule?")) return;
-          try {
-            await deleteRule({ pathParams: { ruleIndex: index } });
-            enqueueSnackbar("Rule deleted.", {
-              variant: "success",
-            });
-          } catch (error) {
-            enqueueSnackbar(
-              error instanceof Error ? error.message : String(error),
-              { variant: "error" },
-            );
-          }
-        }}
-      >
-        Delete
-      </HvButton>
-    </div>
-  </HvTableCell>
-*/
+type RuleRow = AccessControlRuleEditor & { id: string };
 
 const useColumns = () => {
-  return useMemo<HvTableColumnConfig<AccessControlRule>[]>(
+  return useMemo<HvTableColumnConfig<RuleRow>[]>(
     () => [
       {
         Header: "Source",
@@ -54,7 +30,7 @@ const useColumns = () => {
       },
       {
         Header: "Service",
-        accessor: "service",
+        accessor: "services",
         style: { minWidth: 50 },
         Cell: ({ row }) => formatService(row.original),
       },
@@ -84,9 +60,9 @@ const useColumns = () => {
         variant: "actions",
         disableGlobalFilter: true,
         Cell: ({ row }) => {
-          const { original: rule, index } = row;
+          const { original: rule } = row;
 
-          const editAction = useEditRuleAction(rule, index);
+          const editAction = useEditRuleAction(rule.id);
 
           return (
             <HvActionsGeneric
@@ -106,7 +82,7 @@ const useColumns = () => {
 };
 
 const RulesTable = () => {
-  const { data: rules = [] } = useGetAccessControlRules({});
+  const { data: ruleEditors = [] } = useGetAccessControlRuleEditors({});
   const columns = useColumns();
 
   const { createRule } = useCreateRule();
@@ -119,7 +95,11 @@ const RulesTable = () => {
         </HvButton>
       </div>
 
-      <Table columns={columns} data={rules} hidePagination />
+      <Table
+        columns={columns}
+        data={ruleEditors.map(({ id, rule }) => ({ id, ...rule }))}
+        hidePagination
+      />
     </div>
   );
 };

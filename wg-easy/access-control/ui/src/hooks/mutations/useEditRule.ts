@@ -1,14 +1,16 @@
 import { createElement, useCallback } from "react";
 import { useHvSnackbar } from "@hitachivantara/uikit-react-core";
 
-import { useReplaceAccessControlRule } from "../../api/apiComponents";
-import type { AccessControlRule } from "../../api/apiSchemas";
+import {
+  fetchGetAccessControlRuleEditor,
+  useReplaceAccessControlRuleEditor,
+} from "../../api/apiComponents";
 import RuleDialog from "../../components/home/RuleDialog";
 import { usePortalContext } from "../../providers/PortalProvider";
 
 export const ACTION_ID = "edit-rule";
 
-const useEditRule = (rule: AccessControlRule, ruleIndex: number) => {
+const useEditRule = (ruleId: string) => {
   const { enqueueSnackbar } = useHvSnackbar();
   const { openPortal, closePortal } = usePortalContext();
 
@@ -25,11 +27,15 @@ const useEditRule = (rule: AccessControlRule, ruleIndex: number) => {
     [enqueueSnackbar],
   );
 
-  const mutation = useReplaceAccessControlRule({ onSuccess, onError });
+  const mutation = useReplaceAccessControlRuleEditor({ onSuccess, onError });
 
-  const editRule = useCallback(() => {
+  const editRule = useCallback(async () => {
+    try {
+      const editor = await fetchGetAccessControlRuleEditor({
+        pathParams: { ruleId },
+      });
     const dialog = createElement(RuleDialog, {
-      rule,
+      rule: editor.rule,
 
       labels: {
         title: "Edit rule",
@@ -38,7 +44,7 @@ const useEditRule = (rule: AccessControlRule, ruleIndex: number) => {
       },
 
       onSubmit(body) {
-        mutation.mutate({ pathParams: { ruleIndex }, body });
+        mutation.mutate({ pathParams: { ruleId }, body });
       },
 
       onClose() {
@@ -47,7 +53,10 @@ const useEditRule = (rule: AccessControlRule, ruleIndex: number) => {
     });
 
     openPortal(ACTION_ID, dialog);
-  }, [rule, ruleIndex, mutation, closePortal, openPortal]);
+    } catch (error) {
+      onError(error);
+    }
+  }, [ruleId, mutation, closePortal, onError, openPortal]);
 
   return { ...mutation, editRule };
 };

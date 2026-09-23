@@ -1,44 +1,45 @@
-import { useMemo, useCallback, type FC } from "react";
+import { useMemo, type FC } from "react";
 import { HvSelect, type HvSelectProps } from "@hitachivantara/uikit-react-core";
-import type { AccessControlRule } from "../../api/apiSchemas";
 
-type Action = AccessControlRule["action"];
-interface ActionOption {
-  label: string;
-  value: Action;
-}
+import type { AccessControlAction } from "../../types/accessControl";
+import useFakeUnselect from "../../hooks/useFakeUnselect";
 
-type SelectProps = HvSelectProps<Action>;
-interface Props extends Omit<SelectProps, "name" | "label" | "multiple" | "onChange"> {
-  onChange?: (value: Action | null) => void;
+interface Props extends Omit<
+  HvSelectProps<AccessControlAction, true>,
+  "name" | "label" | "multiple" | "onChange" | "value" | "defaultValue"
+> {
+  defaultValue?: AccessControlAction;
+  onChange?: (value: AccessControlAction | undefined) => void;
 }
 
 const SelectAction: FC<Props> = (props) => {
-  const { value, onChange, ...others } = props;
+  const { defaultValue, onChange, ...others } = props;
 
-  const options = useMemo<ActionOption[]>(() => [
-    { label: "Allow", value: "allow" },
-    { label: "Deny", value: "deny" },
-    { label: "Drop", value: "drop" },
-    { label: "Reject", value: "reject" },
-  ], []);
+  const unselectProps = useFakeUnselect<AccessControlAction>({
+    placeholder: "Select an action...",
+    defaultValue,
+    onChange,
+  });
 
-  const onActionChange: SelectProps["onChange"] = useCallback((_, action) => {
-    onChange?.(action);
-  }, [onChange]);
-  
+  const options = useMemo(
+    () => [
+      { label: "Allow", value: "allow" as const },
+      { label: "Deny", value: "deny" as const },
+      { label: "Drop", value: "drop" as const },
+      { label: "Reject", value: "reject" as const },
+    ],
+    [],
+  );
 
   return (
     <HvSelect
       label="Action"
       name="action"
-      placeholder="Select..."
-      value={value}
       options={options}
-      onChange={onActionChange}
       {...others}
+      {...unselectProps}
     />
-  )
+  );
 };
 
 export default SelectAction;

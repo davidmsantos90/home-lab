@@ -1,7 +1,7 @@
 import { createElement, useCallback } from "react";
 import { useHvSnackbar } from "@hitachivantara/uikit-react-core";
 
-import { useCreateAccessControlRule } from "../../api/apiComponents";
+import { useCreateAccessControlRuleEditor } from "../../api/apiComponents";
 import RuleDialog from "../../components/home/RuleDialog";
 import { usePortalContext } from "../../providers/PortalProvider";
 
@@ -24,7 +24,7 @@ const useCreateRule = () => {
     [enqueueSnackbar],
   );
 
-  const mutation = useCreateAccessControlRule({ onSuccess, onError });
+  const mutation = useCreateAccessControlRuleEditor({ onSuccess, onError });
 
   const createRule = useCallback(() => {
     const dialog = createElement(RuleDialog, {

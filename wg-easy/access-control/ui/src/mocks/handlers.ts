@@ -1,6 +1,12 @@
 import { http, HttpResponse } from "msw";
 
-import type { AccessControlConfigDraft } from "../api/apiSchemas";
+import type {
+  AccessControlConfigDraft,
+  AccessControlRule,
+  AccessControlRuleEditor,
+  AccessControlRuleEditorItem,
+  AccessControlServiceSelector,
+} from "../api/apiSchemas";
 import {
   buildMockAccessControlConfigDocument,
   buildMockAccessControlState,
@@ -14,6 +20,18 @@ const apiUrl = (path: string) =>
 let currentDraft: AccessControlConfigDraft = structuredClone(
   mockAccessControlConfigDraft,
 );
+let nextRuleId = 1;
+
+function ensureRuleIds() {
+  currentDraft = {
+    ...currentDraft,
+    rules: currentDraft.rules.map((rule) =>
+      rule.id ? rule : { ...rule, id: `mock-rule-${nextRuleId++}` },
+    ),
+  };
+}
+
+ensureRuleIds();
 
 function currentState() {
   return buildMockAccessControlState(currentDraft);
@@ -53,6 +71,54 @@ function getPeers() {
 
 function getRules() {
   return currentState().rules;
+}
+
+function getRuleEditor(rule: AccessControlConfigDraft["rules"][number]): AccessControlRuleEditor {
+  const services = (rule.service ?? []).flatMap((selector) => {
+    if (typeof selector === "string") {
+      return [{ name: selector, entries: getServices().find((service) => service.name === selector)?.entries ?? [] }];
+    }
+    if ("name" in selector) {
+      return [{
+        name: selector.name,
+        entries: getServices().find((service) => service.name === selector.name)?.entries ?? [],
+        bidirectional: selector.bidirectional,
+      }];
+    }
+    return [{ entries: [selector] }];
+  });
+  return {
+    source: rule.source ?? [],
+    destination: rule.destination ?? [],
+    action: rule.action,
+    comment: rule.comment,
+    services,
+  };
+}
+
+function getRuleEditorItems(): AccessControlRuleEditorItem[] {
+  return getRules().map((rule) => ({ id: rule.id!, rule: getRuleEditor(rule) }));
+}
+
+function ruleFromEditor(
+  editor: AccessControlRuleEditor,
+  id: string,
+): AccessControlRule {
+  return {
+    id,
+    source: editor.source,
+    destination: editor.destination,
+    action: editor.action,
+    comment: editor.comment,
+    service: editor.services.flatMap<AccessControlServiceSelector>((service) => {
+      if (service.name) {
+        return service.bidirectional
+          ? [{ name: service.name, bidirectional: true }]
+          : [service.name];
+      }
+      return service.entries;
+    }),
+  };
 }
 
 function getGroups() {
@@ -136,12 +202,44 @@ export const handlers = [
       ? HttpResponse.json(peer)
       : HttpResponse.text("Peer not found", { status: 404 });
   }),
-  http.get(apiUrl("/api/rules"), () => HttpResponse.json(getRules())),
-  http.get(apiUrl("/api/rules/:ruleIndex"), ({ params }) => {
-    const index = Number(params.ruleIndex);
-    const rule = getRules()[index];
-    return Number.isInteger(index) && rule
-      ? HttpResponse.json({ index, rule })
+  http.get(apiUrl("/api/rules"), () =>
+    HttpResponse.json(getRules().map((rule) => ({ id: rule.id, rule }))),
+  ),
+  http.get(apiUrl("/api/rule-editors"), () =>
+    HttpResponse.json(getRuleEditorItems()),
+  ),
+  http.get(apiUrl("/api/rule-editors/:ruleId"), ({ params }) => {
+    const item = getRuleEditorItems().find((rule) => rule.id === params.ruleId);
+    return item
+      ? HttpResponse.json(item)
+      : HttpResponse.text("Rule not found", { status: 404 });
+  }),
+  http.post(apiUrl("/api/rule-editors"), async ({ request }) => {
+    const editor = (await request.json()) as AccessControlRuleEditor;
+    const id = `mock-rule-${nextRuleId++}`;
+    const rule = ruleFromEditor(editor, id);
+    currentDraft = { ...currentDraft, rules: [...currentDraft.rules, rule] };
+    return HttpResponse.json({ id, rule: getRuleEditor(rule) });
+  }),
+  http.put(apiUrl("/api/rule-editors/:ruleId"), async ({ params, request }) => {
+    const editor = (await request.json()) as AccessControlRuleEditor;
+    const ruleId = String(params.ruleId);
+    if (!currentDraft.rules.some((rule) => rule.id === ruleId)) {
+      return HttpResponse.text("Rule not found", { status: 404 });
+    }
+    const rule = ruleFromEditor(editor, ruleId);
+    currentDraft = {
+      ...currentDraft,
+      rules: currentDraft.rules.map((currentRule) =>
+        currentRule.id === ruleId ? rule : currentRule,
+      ),
+    };
+    return HttpResponse.json({ id: ruleId, rule: getRuleEditor(rule) });
+  }),
+  http.get(apiUrl("/api/rules/:ruleId"), ({ params }) => {
+    const rule = getRules().find((item) => item.id === params.ruleId);
+    return rule
+      ? HttpResponse.json({ id: rule.id, rule })
       : HttpResponse.text("Rule not found", { status: 404 });
   }),
   http.post(apiUrl("/api/rules"), async ({ request }) => {
@@ -158,57 +256,60 @@ export const handlers = [
         rule as AccessControlConfigDraft["rules"][number],
       ],
     };
-    const index = currentDraft.rules.length - 1;
-    return HttpResponse.json({ index, rule: currentDraft.rules[index] });
+    const id = `mock-rule-${nextRuleId++}`;
+    const createdRule = { ...(rule as AccessControlConfigDraft["rules"][number]), id };
+    currentDraft = {
+      ...currentDraft,
+      rules: [...currentDraft.rules.slice(0, -1), createdRule],
+    };
+    return HttpResponse.json({ id, rule: createdRule });
   }),
-  http.put(apiUrl("/api/rules/:ruleIndex"), async ({ params, request }) => {
-    const index = Number(params.ruleIndex);
+  http.put(apiUrl("/api/rules/:ruleId"), async ({ params, request }) => {
+    const ruleId = String(params.ruleId);
     const rule = (await request.json()) as unknown;
-    if (!Number.isInteger(index) || !rule || typeof rule !== "object") {
+    if (!rule || typeof rule !== "object") {
       return HttpResponse.text("Invalid rule update", { status: 400 });
     }
-    if (!currentDraft.rules[index]) {
+    if (!currentDraft.rules.some((item) => item.id === ruleId)) {
       return HttpResponse.text("Rule not found", { status: 404 });
     }
     currentDraft = {
       ...currentDraft,
-      rules: currentDraft.rules.map((item, currentIndex) =>
-        currentIndex === index
-          ? (rule as AccessControlConfigDraft["rules"][number])
+      rules: currentDraft.rules.map((item) =>
+        item.id === ruleId
+          ? { ...(rule as AccessControlConfigDraft["rules"][number]), id: ruleId }
           : item,
       ),
     };
-    return HttpResponse.json({ index, rule: currentDraft.rules[index] });
+    return HttpResponse.json({ id: ruleId, rule: currentDraft.rules.find((item) => item.id === ruleId) });
   }),
-  http.patch(apiUrl("/api/rules/:ruleIndex"), async ({ params, request }) => {
-    const index = Number(params.ruleIndex);
+  http.patch(apiUrl("/api/rules/:ruleId"), async ({ params, request }) => {
+    const ruleId = String(params.ruleId);
     const patch = (await request.json()) as Record<string, unknown>;
-    if (!Number.isInteger(index) || !patch || typeof patch !== "object") {
+    if (!patch || typeof patch !== "object") {
       return HttpResponse.text("Invalid rule patch", { status: 400 });
     }
-    if (!currentDraft.rules[index]) {
+    if (!currentDraft.rules.some((item) => item.id === ruleId)) {
       return HttpResponse.text("Rule not found", { status: 404 });
     }
     currentDraft = {
       ...currentDraft,
-      rules: currentDraft.rules.map((item, currentIndex) =>
-        currentIndex === index
-          ? ({ ...item, ...patch } as AccessControlConfigDraft["rules"][number])
+      rules: currentDraft.rules.map((item) =>
+        item.id === ruleId
+          ? ({ ...item, ...patch, id: ruleId } as AccessControlConfigDraft["rules"][number])
           : item,
       ),
     };
-    return HttpResponse.json({ index, rule: currentDraft.rules[index] });
+    return HttpResponse.json({ id: ruleId, rule: currentDraft.rules.find((item) => item.id === ruleId) });
   }),
-  http.delete(apiUrl("/api/rules/:ruleIndex"), ({ params }) => {
-    const index = Number(params.ruleIndex);
-    if (!Number.isInteger(index) || !currentDraft.rules[index]) {
+  http.delete(apiUrl("/api/rules/:ruleId"), ({ params }) => {
+    const ruleId = String(params.ruleId);
+    if (!currentDraft.rules.some((rule) => rule.id === ruleId)) {
       return HttpResponse.text("Rule not found", { status: 404 });
     }
     currentDraft = {
       ...currentDraft,
-      rules: currentDraft.rules.filter(
-        (_, currentIndex) => currentIndex !== index,
-      ),
+      rules: currentDraft.rules.filter((rule) => rule.id !== ruleId),
     };
     return HttpResponse.text("", { status: 204 });
   }),
@@ -304,9 +405,9 @@ export const handlers = [
   http.post(apiUrl("/api/services"), async ({ request }) => {
     const payload = (await request.json()) as {
       name?: string;
-      entries?: Array<{ protocol: string; port: number | string }>;
-      protocol?: string;
-      port?: number | string;
+      entries?: Array<{ protocol: "tcp" | "udp"; port: number }>;
+      protocol?: "tcp" | "udp";
+      port?: number;
     };
     if (!payload.name) {
       return HttpResponse.text("Invalid service payload", { status: 400 });
@@ -320,12 +421,13 @@ export const handlers = [
         ...currentDraft.aliases,
         services: {
           ...currentDraft.aliases.services,
-          [payload.name]: payload.entries ?? [
-            {
-              protocol: String(payload.protocol ?? "tcp"),
-              port: payload.port ?? 0,
-            },
-          ],
+          [payload.name]:
+            payload.entries ?? [
+              {
+                protocol: payload.protocol ?? "tcp",
+                port: payload.port ?? 0,
+              },
+            ],
         },
       },
     };
@@ -336,9 +438,9 @@ export const handlers = [
     async ({ params, request }) => {
       const payload = (await request.json()) as {
         name?: string;
-        entries?: Array<{ protocol: string; port: number | string }>;
-        protocol?: string;
-        port?: number | string;
+        entries?: Array<{ protocol: "tcp" | "udp"; port: number }>;
+        protocol?: "tcp" | "udp";
+        port?: number;
       };
       const name = String(params.serviceName);
       if (!payload.name) {
@@ -349,7 +451,7 @@ export const handlers = [
       delete services[name];
       services[nextName] = payload.entries ?? [
         {
-          protocol: String(payload.protocol ?? "tcp"),
+          protocol: payload.protocol ?? "tcp",
           port: payload.port ?? 0,
         },
       ];
@@ -369,9 +471,9 @@ export const handlers = [
     async ({ params, request }) => {
       const payload = (await request.json()) as {
         name?: string;
-        entries?: Array<{ protocol: string; port: number | string }>;
-        protocol?: string;
-        port?: number | string;
+        entries?: Array<{ protocol: "tcp" | "udp"; port: number }>;
+        protocol?: "tcp" | "udp";
+        port?: number;
       };
       const name = String(params.serviceName);
       const service = currentDraft.aliases.services[name];
