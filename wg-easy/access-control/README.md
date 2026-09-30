@@ -120,9 +120,9 @@ Hosts can be written as a plain IP string or an object.
 ```json
 {
   "hosts": {
-    "raspberry": "192.168.1.60",
+    "raspberry": "<pi-lan-ip>",
     "nas": {
-      "address": "192.168.1.10",
+      "address": "<lan-ip>",
       "comment": "Storage server"
     }
   }
@@ -161,7 +161,7 @@ In `source` and `destination` fields, you can use:
 - **Group name**: `"family"` — expands to all peers in that group
 - **Host alias**: `"raspberry"` — resolves through `aliases.json`
 - **All peers**: `"*"` — expands to all active peers from the wg-easy API
-- **IP/CIDR**: `"192.168.1.60"`, `"10.200.0.0/24"`, `"0.0.0.0/0"` — literal network addresses
+- **IP/CIDR**: `"<pi-lan-ip>"`, `"<translated-lan-subnet>"`, `"0.0.0.0/0"` — literal network addresses
 - **Service alias**: use the `service` field, which resolves through `aliases.json`
 
 ### Rule Fields

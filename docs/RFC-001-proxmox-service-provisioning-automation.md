@@ -209,6 +209,23 @@ That means automation and docs should assume:
 - the Docker `homelab` network is host-local and does not span the Pi and
   Proxmox host
 
+### Pi-hole PRIMARY/SECONDARY
+
+DNS is now provided by two Pi-hole instances:
+
+- **PRIMARY** — Proxmox-hosted Pi-hole; the source of truth for DNS records
+  and Gravity lists
+- **SECONDARY** — the existing Raspberry Pi Pi-hole (this repository's
+  [pihole](/Users/davsantos/github/misc/home-lab/pihole) service); kept in
+  sync from PRIMARY via [Nebula Sync](https://github.com/lovelaze/nebula-sync)
+
+Proxmox-hosted LXCs (Jellyfin, Immich, Deluge) should use the PRIMARY
+Pi-hole as their DNS server, since it is the source of truth for local DNS
+records and is on the same host network segment. DHCP stays on the router
+and is intentionally excluded from Nebula Sync. See
+[pihole/README.md](/Users/davsantos/github/misc/home-lab/pihole/README.md#pi-hole-primarysecondary-sync-nebula-sync)
+for the sync setup and selective-sync policy.
+
 ## Repository layout
 
 The likely future layout is:

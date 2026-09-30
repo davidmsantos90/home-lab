@@ -8,6 +8,10 @@ services:
       - TZ=${TZ}
       # - WEBPASSWORD=${PIHOLE_WEBPASSWORD}
       - DNSMASQ_LISTENING=all    # Listen on all interfaces
+      # Required so this instance (SECONDARY) accepts config pushed by Nebula
+      # Sync from the Proxmox PRIMARY — see "Pi-hole PRIMARY/SECONDARY sync
+      # (Nebula Sync)" in README.md.
+      - FTLCONF_webserver_api_app_sudo=true
 
     volumes:
       - ${HOME_LAB_DIR:-.}/etc-pihole:/etc/pihole
@@ -30,6 +34,40 @@ services:
 
     networks:
       default: {}
+      homelab: {}
+
+    restart: unless-stopped
+
+  # Nebula Sync — keeps this instance (SECONDARY) in sync with the
+  # Proxmox-hosted Pi-hole (PRIMARY). See README.md for the selective-sync
+  # policy and setup steps.
+  nebula-sync:
+    container_name: nebula-sync-${SERVICE}
+    image: ghcr.io/lovelaze/nebula-sync:latest
+
+    environment:
+      - TZ=${TZ}
+      # PRIMARY = source of truth (Proxmox). REPLICAS = this instance, reached
+      # by container name over the shared `homelab` network.
+      - PRIMARY=${NEBULA_SYNC_PRIMARY_URL}|${NEBULA_SYNC_PRIMARY_PASSWORD}
+      - REPLICAS=http://app-${SERVICE}|${NEBULA_SYNC_SECONDARY_PASSWORD}
+      - FULL_SYNC=false
+      - RUN_GRAVITY=true
+      - CRON=${NEBULA_SYNC_CRON:-0 5 * * *}
+      # Selective sync policy: DNS/Resolver config + Gravity lists/groups/
+      # clients. DHCP/NTP/Database/Misc/Debug are intentionally excluded — DHCP
+      # stays on the router, the rest are instance-local concerns.
+      - SYNC_CONFIG_DNS=true
+      - SYNC_CONFIG_RESOLVER=true
+      - SYNC_GRAVITY_GROUP=true
+      - SYNC_GRAVITY_AD_LIST=true
+      - SYNC_GRAVITY_AD_LIST_BY_GROUP=true
+      - SYNC_GRAVITY_DOMAIN_LIST=true
+      - SYNC_GRAVITY_DOMAIN_LIST_BY_GROUP=true
+      - SYNC_GRAVITY_CLIENT=true
+      - SYNC_GRAVITY_CLIENT_BY_GROUP=true
+
+    networks:
       homelab: {}
 
     restart: unless-stopped

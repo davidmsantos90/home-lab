@@ -33,9 +33,9 @@ Known-good shape:
 | Setting | Example |
 |---|---|
 | LXC ID | `102` |
-| IPv4 | `192.168.1.72/24` |
-| Gateway | `192.168.1.1` |
-| DNS | `192.168.1.60` (Pi-hole) |
+| IPv4 | `<immich-lxc-ip>/24` |
+| Gateway | `<router-ip>` |
+| DNS | `<pihole-primary-ip>` (Pi-hole PRIMARY, Proxmox) |
 | Runtime | Docker Engine + Compose plugin inside the LXC |
 | Immich version pin | `IMMICH_VERSION=v3` or another explicit release tag |
 
@@ -47,7 +47,7 @@ Notes for this layout:
   on a network share
 - place `UPLOAD_LOCATION` on storage sized for your photo/video library rather
   than on the small root filesystem
-- Pi-hosted NPM must proxy to `immich.home.arpa:2283` or `192.168.1.72:2283`;
+- Pi-hosted NPM must proxy to `immich.home.arpa:2283` or `<immich-lxc-ip>:2283`;
   it cannot reach this LXC via a Docker container name from another host
 
 From inside the LXC, the service lifecycle stays the same as any other Docker

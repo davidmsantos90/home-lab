@@ -70,7 +70,7 @@ DNS = 10.200.0.60
 ```
 
 **Why not the gateway?** Historically (RFC-003) DNS had to point at the
-gateway (`10.200.0.1`) because the old DNS DNAT rule matched purely on
+gateway (`<wg-translated-gateway-ip>`) because the old DNS DNAT rule matched purely on
 `-i wg0 --dport 53`, with no awareness of destination or content — pointing
 straight at Pi-hole bypassed it entirely, and no rewrite ever happened for
 `pimlicoa.duckdns.org`. Since the rule now matches on **domain content**
@@ -103,12 +103,12 @@ This rule:
 
 **Rule order matters**: this DNAT rule must still be placed **before** the
 wg-easy-admin exception rule and the NETMAP rules in PREROUTING, since both
-`10.200.0.1` (the gateway) and `10.200.0.60` (Pi-hole's translated address,
+`<wg-translated-gateway-ip>` (the gateway) and `<npm-translated-ip>` (Pi-hole's translated address,
 now the configured DNS) fall inside the translated subnet
-(`10.200.0.0/24`). In iptables' `nat` table, a packet stops being evaluated
+(`<translated-lan-subnet>`). In iptables' `nat` table, a packet stops being evaluated
 by further rules in the same chain once it matches a NAT target — if
-NETMAP ran first, a `pimlicoa.duckdns.org` query sent to `10.200.0.60`
-would get silently rewritten to `192.168.1.60` before the DNS rule ever
+NETMAP ran first, a `pimlicoa.duckdns.org` query sent to `<npm-translated-ip>`
+would get silently rewritten to `<pi-lan-ip>` before the DNS rule ever
 saw it, and would never reach dnsmasq for rewriting.
 
 ### 3. dnsmasq Domain Rewriting
@@ -121,7 +121,7 @@ server=10.200.0.60  # Defensive fallback only — see below
 ```
 
 For this example:
-- Query for `nginx.pimlicoa.duckdns.org` (or any other subdomain, e.g. `immich.`, `portainer.`) → returns `10.200.0.60` (locally rewritten)
+- Query for `nginx.pimlicoa.duckdns.org` (or any other subdomain, e.g. `immich.`, `portainer.`) → returns `<npm-translated-ip>` (locally rewritten)
 - Since the PostUp rule now only ever redirects `pimlicoa.duckdns.org`
   queries to dnsmasq in the first place, the `server=` upstream line is a
   defensive fallback that should rarely (if ever) be exercised in practice.
@@ -137,12 +137,12 @@ iptables -t nat -A POSTROUTING -d 172.28.0.2/32 -p tcp --dport 5353 -j MASQUERAD
 
 This rule:
 - Matches responses from dnsmasq to the client
-- Rewrites source IP to appear from wg-easy (10.200.0.1)
+- Rewrites source IP to appear from wg-easy (<wg-translated-gateway-ip>)
 - Makes the VPN client think the answer came from the VPN gateway
 
 ## Common Issues and Solutions
 
-### Issue 1: "Getting 192.168.1.60 from Pi-hole instead of 10.200.0.60"
+### Issue 1: "Getting <pi-lan-ip> from Pi-hole instead of <npm-translated-ip>"
 
 **Cause**: The query's payload didn't match the DNS interception rule's
 domain content — either the client isn't querying a `pimlicoa.duckdns.org`
@@ -176,8 +176,8 @@ cause `extraneous parameter` errors — just leave the directive out.)
 **Cause B (the sneaky one)**: A rule placed *before* the DNS DNAT rule in
 PREROUTING is catching the packet first — most likely the NETMAP rule,
 since a `pimlicoa.duckdns.org` query is typically sent to Pi-hole's
-translated address (`10.200.0.60`), which is inside the translated subnet
-(`10.200.0.0/24`). Once NETMAP claims the packet, no further NAT rules in
+translated address (`<npm-translated-ip>`), which is inside the translated subnet
+(`<translated-lan-subnet>`). Once NETMAP claims the packet, no further NAT rules in
 that chain apply and dnsmasq never sees it. **Fix: DNS interception rules
 must be the first NAT rules applied in PostUp**, before the wg-easy-admin
 exception and before NETMAP.
@@ -320,7 +320,7 @@ nslookup nginx.pimlicoa.duckdns.org
 ## Adding More Domain Rewrites
 
 Since every NPM proxy host under `pimlicoa.duckdns.org` shares the same
-translated address (`10.200.0.60`), one wildcard rule in
+translated address (`<npm-translated-ip>`), one wildcard rule in
 [dnsmasq.conf.example](./dnsmasq.conf.example) covers the whole domain (and all its
 subdomains) automatically:
 
@@ -343,9 +343,9 @@ docker compose restart dnsmasq
 
 Services that run directly on the Pi's host, or on another LAN device, are
 typically reached via an NPM proxy host that forwards over the `homelab`
-bridge network (e.g. `http://192.168.100.1:32400` for Plex,
-`http://192.168.100.1:8112` for Deluge, `http://192.168.100.1:9090` for
-little-pi4 — where `192.168.100.1` is the `homelab` bridge gateway, i.e. the
+bridge network (e.g. `http://<homelab-bridge-gateway-ip>:32400` for Plex,
+`http://<homelab-bridge-gateway-ip>:8112` for Deluge, `http://<homelab-bridge-gateway-ip>:9090` for
+little-pi4 — where `<homelab-bridge-gateway-ip>` is the `homelab` bridge gateway, i.e. the
 host itself). That NPM → target hop happens entirely inside the Pi's network
 stack and never crosses the WireGuard tunnel, so it is **not** affected by
 the subnet overlap problem.
@@ -353,17 +353,17 @@ the subnet overlap problem.
 This means such domains don't need their own translated IP or NAT rules —
 they're already covered by the same wildcard rewrite as any other
 NPM-proxied domain, since they resolve to NPM's translated address
-(`10.200.0.60`) too.
+(`<npm-translated-ip>`) too.
 
 Only add a *new* translated IP (and matching dedicated DNAT/SNAT pair in
 `../hooks/bootstrap-hooks.sh`, following the same pattern used for the wg-easy admin
-UI's `10.200.0.9 ↔ 192.168.100.9` rule) if a client needs to reach a
+UI's `<wg-easy-admin-translated-ip> ↔ <wg-easy-admin-homelab-ip>` rule) if a client needs to reach a
 service that lives on the `homelab` bridge (a *different* subnet from the
 home LAN, unreachable via the generic NETMAP rule) **directly** — e.g. a
 Plex app doing local network auto-discovery instead of using the
 reverse-proxy domain. Anything reachable at the Pi's own real LAN IP (like
 NPM's host-published ports) is already covered by the generic
-`10.200.0.0/24 ↔ 192.168.1.0/24` NETMAP translation with no dedicated rule
+`<translated-lan-subnet> ↔ <home-lan-subnet>` NETMAP translation with no dedicated rule
 needed.
 
 ## Performance Considerations

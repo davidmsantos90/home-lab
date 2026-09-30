@@ -59,9 +59,9 @@ Known-good shape:
 
 | Setting | Example |
 |---|---|
-| IPv4 | `192.168.1.73/24` |
-| Gateway | `192.168.1.1` |
-| DNS | `192.168.1.60` (Pi-hole) |
+| IPv4 | `<deluge-lxc-ip>/24` |
+| Gateway | `<router-ip>` |
+| DNS | `<pihole-primary-ip>` (Pi-hole PRIMARY, Proxmox) |
 | Runtime | native `deluged` + `deluge-web` services managed by systemd |
 | Config root | `/var/lib/deluged/config` |
 | Plugin path | `/var/lib/deluged/config/plugins` |

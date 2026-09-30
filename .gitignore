@@ -13,6 +13,7 @@ ts/
 wg-easy/data/
 data/
 letsencrypt/
+wg-easy/dns/dnsmasq.conf
 
 __pycache__/
 mealie/.food-translations-pt-PT.json

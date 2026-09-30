@@ -1,7 +1,7 @@
 # WireGuard Easy - Hook Configuration with DNS Interception
 
 This document provides the complete hook strings to configure in the wg-easy web UI for:
-- **RFC-001**: Overlap subnet translation (10.200.0.0/24 ↔ 192.168.1.0/24)
+- **RFC-001**: Overlap subnet translation (<translated-lan-subnet> ↔ <home-lan-subnet>)
 - **RFC-002**: Dynamic egress interface detection for MASQUERADE
 - **wg-easy admin UI access**: DNAT/SNAT rule so VPN clients can reach wg-easy's own admin UI, which has no presence on the real home LAN
 - **DNS Interception**: Redirect VPN client DNS queries to local dnsmasq proxy for domain rewriting
@@ -38,7 +38,7 @@ This resolves `dnsmasq-wg-easy` container IP dynamically and applies rules with 
 
 ## Post Up Hook
 
-Replace `DNSMASQ_IP` with the actual IP address from step 1 above, `WG_EASY_ADMIN_HOMELAB_IP`/`WG_EASY_ADMIN_TRANSLATED_IP` with the values from `.env` (defaults: `192.168.100.9`/`10.200.0.9`), and `DNS_MATCH_HEX` with the DNS wire-format hex bytes for `WG_EASY_HOST` (RFC-006 — see `domain_to_wire_hex()` in [bootstrap-hooks.sh](./bootstrap-hooks.sh); for the default `pimlicoa.duckdns.org` this is `0870696d6c69636f61076475636b646e73036f726700`).
+Replace `DNSMASQ_IP` with the actual IP address from step 1 above, `WG_EASY_ADMIN_HOMELAB_IP`/`WG_EASY_ADMIN_TRANSLATED_IP` with the values from `.env` (defaults: `<wg-easy-admin-homelab-ip>`/`<wg-easy-admin-translated-ip>`), and `DNS_MATCH_HEX` with the DNS wire-format hex bytes for `WG_EASY_HOST` (RFC-006 — see `domain_to_wire_hex()` in [bootstrap-hooks.sh](./bootstrap-hooks.sh); for the default `pimlicoa.duckdns.org` this is `0870696d6c69636f61076475636b646e73036f726700`).
 
 ```bash
 DEFAULT_IF=$(ip route show default | cut -d' ' -f5 | head -n1); T=10.200.0.0/24; H=192.168.1.0/24; D=DNSMASQ_IP; A=WG_EASY_ADMIN_HOMELAB_IP; AT=WG_EASY_ADMIN_TRANSLATED_IP; iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "$DEFAULT_IF" -j MASQUERADE; modprobe xt_NETMAP || true; modprobe xt_string || true; iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -m string --algo bm --hex-string "|DNS_MATCH_HEX|" --icase -j DNAT --to-destination "$D:5353"; iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -m string --algo bm --hex-string "|DNS_MATCH_HEX|" --icase -j DNAT --to-destination "$D:5353"; iptables -t nat -A POSTROUTING -d "$D/32" -p udp --dport 5353 -j MASQUERADE; iptables -t nat -A POSTROUTING -d "$D/32" -p tcp --dport 5353 -j MASQUERADE; iptables -t nat -A PREROUTING -d "$AT/32" -j DNAT --to "$A"; iptables -t nat -A POSTROUTING -s "$A/32" -j SNAT --to "$AT"; iptables -t nat -A PREROUTING -d "$T" -j NETMAP --to "$H"; iptables -t nat -A POSTROUTING -s "$H" -j NETMAP --to "$T"; iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT;
@@ -57,8 +57,8 @@ DEFAULT_IF=$(ip route show default | cut -d' ' -f5 | head -n1); T=10.200.0.0/24;
 The hooks execute these steps in order. **Rule order in the `nat` table is
 critical**: once a packet matches a rule with a NAT target (DNAT, NETMAP,
 REDIRECT, MASQUERADE), iptables stops evaluating further rules in that chain
-for that packet. The translated subnet (`10.200.0.0/24`) includes both the
-wg0 gateway (`10.200.0.1`) and Pi-hole's translated address (`10.200.0.60`,
+for that packet. The translated subnet (`<translated-lan-subnet>`) includes both the
+wg0 gateway (`<wg-translated-gateway-ip>`) and Pi-hole's translated address (`<npm-translated-ip>`,
 the address VPN clients now use as their DNS server), so the DNS
 interception rules **must be placed before** the wg-easy-admin and NETMAP
 rules — otherwise NETMAP would catch DNS traffic first and dnsmasq would
@@ -94,15 +94,15 @@ Where `$D` is the dnsmasq container IP on wg_easy_bridge network (e.g., 172.28.0
 **How it works**:
 - PREROUTING DNAT: only matches DNS packets whose payload contains `WG_EASY_HOST`'s wire-format bytes (any subdomain shares the same byte suffix), and rewrites their destination from `wg0` to the dnsmasq container IP. `--icase` guards against DNS 0x20-encoding (case randomization used by some resolvers as an anti-spoofing measure). Everything else isn't matched at all.
 - POSTROUTING MASQUERADE: Rewrites source of dnsmasq responses so VPN clients see replies from wg-easy, not from a different IP
-- VPN clients receive translated DNS responses (e.g., `nginx.pimlicoa.duckdns.org` → `10.200.0.60`, the translated form of the Pi's own real LAN IP) for the matched domain; every other query bypasses dnsmasq entirely and reaches Pi-hole directly via NETMAP below, preserving the client's real WireGuard tunnel IP in Pi-hole's Query Log.
+- VPN clients receive translated DNS responses (e.g., `nginx.pimlicoa.duckdns.org` → `<npm-translated-ip>`, the translated form of the Pi's own real LAN IP) for the matched domain; every other query bypasses dnsmasq entirely and reaches Pi-hole directly via NETMAP below, preserving the client's real WireGuard tunnel IP in Pi-hole's Query Log.
 
 This approach uses DNAT instead of REDIRECT because dnsmasq runs in a separate container on the Docker network, not localhost inside wg-easy.
 
 **Why this must come first**: `WG_EASY_HOST`-domain queries can be sent to
-either the wg0 gateway (`10.200.0.1`, legacy clients) or Pi-hole's
-translated address (`10.200.0.60`, current default) — both fall inside the
-translated subnet (`10.200.0.0/24`). If the NETMAP rule ran first, it would
-rewrite the destination (e.g. to `192.168.1.60`) before the DNS-specific
+either the wg0 gateway (`<wg-translated-gateway-ip>`, legacy clients) or Pi-hole's
+translated address (`<npm-translated-ip>`, current default) — both fall inside the
+translated subnet (`<translated-lan-subnet>`). If the NETMAP rule ran first, it would
+rewrite the destination (e.g. to `<pi-lan-ip>`) before the DNS-specific
 rule ever got a chance to match — silently breaking the RFC-001 rewrite
 with no errors.
 
@@ -112,9 +112,9 @@ iptables -t nat -A PREROUTING -d 10.200.0.9/32 -j DNAT --to 192.168.100.9
 iptables -t nat -A POSTROUTING -s 192.168.100.9/32 -j SNAT --to 10.200.0.9
 ```
 Routes VPN clients to wg-easy's own admin UI via its static homelab IP
-(`192.168.100.9`). This exception exists only for wg-easy itself: unlike NPM
+(`<wg-easy-admin-homelab-ip>`). This exception exists only for wg-easy itself: unlike NPM
 and other host-bound services, wg-easy's admin UI has no presence at all on
-the real home LAN (`192.168.1.0/24`), so the generic NETMAP rule below
+the real home LAN (`<home-lan-subnet>`), so the generic NETMAP rule below
 can't reach it — it needs its own dedicated translation.
 **Important**: This rule must come BEFORE the broad NETMAP rules so it matches first.
 
@@ -123,12 +123,12 @@ can't reach it — it needs its own dedicated translation.
 iptables -t nat -A PREROUTING -d 10.200.0.0/24 -j NETMAP --to 192.168.1.0/24
 iptables -t nat -A POSTROUTING -s 192.168.1.0/24 -j NETMAP --to 10.200.0.0/24
 ```
-Translates all traffic between VPN subnet (10.200.0.0/24) and home LAN (192.168.1.0/24).
+Translates all traffic between VPN subnet (<translated-lan-subnet>) and home LAN (<home-lan-subnet>).
 - PREROUTING: Rewrites destination for incoming traffic
 - POSTROUTING: Rewrites source for outgoing traffic
 
 This generic 1:1 mapping is what now routes VPN clients to NPM and any other
-host-bound service (e.g. `10.200.0.60` → `192.168.1.60`, the Pi's own real
+host-bound service (e.g. `<npm-translated-ip>` → `<pi-lan-ip>`, the Pi's own real
 LAN IP) — no per-service NAT exception needed, unlike wg-easy's own admin UI above.
 
 ### 6. Input/Forward Filtering
@@ -143,7 +143,7 @@ Accepts WireGuard traffic on port 51820 and allows forwarding through VPN tunnel
 
 - **dnsmasq proxy**: Runs in separate container on `wg_easy_internal` network
 - **Listening address**: 0.0.0.0:5353 (internal, only accessible via iptables redirect)
-- **Domain rewrite**: `nginx.pimlicoa.duckdns.org` → `10.200.0.60` (for VPN clients only — the translated form of the Pi's real LAN IP, since NPM is now reached there directly instead of via a dedicated macvlan/homelab address)
+- **Domain rewrite**: `nginx.pimlicoa.duckdns.org` → `<npm-translated-ip>` (for VPN clients only — the translated form of the Pi's real LAN IP, since NPM is now reached there directly instead of via a dedicated macvlan/homelab address)
 - **Scope (RFC-006)**: only queries matching `WG_EASY_HOST`'s domain content are redirected to dnsmasq at all — everything else bypasses it entirely, reaching Pi-hole directly via NETMAP and preserving the client's real WireGuard tunnel IP in Pi-hole's Query Log. dnsmasq's `server=` upstream line is now only a defensive fallback.
 
 **Result**: VPN clients get a translated address that safely routes through the tunnel even if their own local network overlaps with the home LAN, while LAN clients still resolve to physical addresses — and non-`WG_EASY_HOST` queries retain the client's real identity in Pi-hole's log.
@@ -152,18 +152,18 @@ Accepts WireGuard traffic on port 51820 and allows forwarding through VPN tunnel
 
 After hooks are applied:
 
-1. **From overlapping network (192.168.1.0/24)**:
-   - DNS resolves `nginx.pimlicoa.duckdns.org` → `10.200.0.60`
-   - Clients route through VPN tunnel to 10.200.0.60
-   - NETMAP rule translates to 192.168.1.60 (the Pi's own real LAN IP, where NPM now listens directly)
-   - NPM responds, NETMAP translates the source back to 10.200.0.60
+1. **From overlapping network (<home-lan-subnet>)**:
+   - DNS resolves `nginx.pimlicoa.duckdns.org` → `<npm-translated-ip>`
+   - Clients route through VPN tunnel to <npm-translated-ip>
+   - NETMAP rule translates to <pi-lan-ip> (the Pi's own real LAN IP, where NPM now listens directly)
+   - NPM responds, NETMAP translates the source back to <npm-translated-ip>
    - Connection succeeds ✓
-   - NPM's admin UI is reachable the same way, at `10.200.0.60:81` (NETMAP
+   - NPM's admin UI is reachable the same way, at `<npm-translated-ip>:81` (NETMAP
      translates the whole IP, not just proxy ports)
 
-2. **From LAN (192.168.1.0/24, non-VPN)**:
-   - DNS still resolves to 192.168.1.60 (the Pi's real LAN IP)
-   - Direct connection to 192.168.1.60 works as before ✓
+2. **From LAN (<home-lan-subnet>, non-VPN)**:
+   - DNS still resolves to <pi-lan-ip> (the Pi's real LAN IP)
+   - Direct connection to <pi-lan-ip> works as before ✓
 
 ## Testing the Setup
 
@@ -213,7 +213,7 @@ curl -I https://192.168.1.60
 
 ## Troubleshooting
 
-### DNS not being intercepted (VPN client still gets 192.168.1.60)
+### DNS not being intercepted (VPN client still gets <pi-lan-ip>)
 - Verify dnsmasq container is running: `docker ps | grep dnsmasq`
 - Verify DNS redirect rules exist AND come first: `docker exec wg-easy iptables -t nat -S`
   (the DNAT rules for port 5353 must appear **above** the wg-easy-admin/NETMAP rules — see
@@ -225,7 +225,7 @@ curl -I https://192.168.1.60
   Should show `0.0.0.0:5353` or `:::5353`, NOT just `127.0.0.1:5353`
 - Check dnsmasq config: `docker exec dnsmasq-wg-easy cat /etc/dnsmasq.conf`
   Must NOT have a `listen-address=127.0.0.1` line (just omit it)
-- Verify VPN client DNS is set to Pi-hole's translated address (e.g., `10.200.0.60`) — RFC-006 no longer requires pointing at the VPN gateway, since the interception rule matches on domain content rather than destination
+- Verify VPN client DNS is set to Pi-hole's translated address (e.g., `<npm-translated-ip>`) — RFC-006 no longer requires pointing at the VPN gateway, since the interception rule matches on domain content rather than destination
 - Check `xt_string` module loaded: `docker exec wg-easy lsmod | grep xt_string`
 - Check dnsmasq logs: `docker logs dnsmasq-wg-easy | tail -20`
 - **Definitive test**: capture traffic directly on dnsmasq's interface to see if packets ever arrive:
@@ -239,9 +239,9 @@ curl -I https://192.168.1.60
 
 ### Rule order (common pitfall)
 `WG_EASY_HOST`-domain queries can be sent to either the wg0 gateway
-(`10.200.0.1`, legacy clients) or Pi-hole's translated address
-(`10.200.0.60`, current default) — both fall inside the translated subnet
-(`10.200.0.0/24`). Because iptables `nat` rules stop being evaluated for a
+(`<wg-translated-gateway-ip>`, legacy clients) or Pi-hole's translated address
+(`<npm-translated-ip>`, current default) — both fall inside the translated subnet
+(`<translated-lan-subnet>`). Because iptables `nat` rules stop being evaluated for a
 packet once it matches a NAT target, if the NETMAP rule is placed before the
 DNS interception rule, it silently claims the packet first and dnsmasq never
 receives it — with no errors logged anywhere. **Always place the DNS
@@ -249,10 +249,10 @@ interception rules first** in PostUp/PostDown, before the wg-easy-admin and
 NETMAP rules (see the corrected hook strings above).
 
 ### NPM still unreachable from overlapping VPN clients
-- Verify DNS resolves to a translated address: `nslookup nginx.pimlicoa.duckdns.org 10.200.0.60` should return `10.200.0.60`, not `192.168.1.60`
+- Verify DNS resolves to a translated address: `nslookup nginx.pimlicoa.duckdns.org <npm-translated-ip>` should return `<npm-translated-ip>`, not `<pi-lan-ip>`
 - Verify NETMAP rules exist: `docker exec wg-easy iptables -t nat -S | grep NETMAP`
 - Ensure rules are in correct order (DNS rules, then wg-easy-admin, then NETMAP): `docker exec wg-easy iptables -t nat -S`
-- Check NPM is actually listening on the host's real LAN IP: `docker exec nginx-proxy-manager ip addr show` should show it bound via `ports:`, reachable at the host's own address (e.g. `192.168.1.60:81`)
+- Check NPM is actually listening on the host's real LAN IP: `docker exec nginx-proxy-manager ip addr show` should show it bound via `ports:`, reachable at the host's own address (e.g. `<pi-lan-ip>:81`)
 
 ### Performance issues / slow DNS
 - Check dnsmasq cache size: `grep cache-size /path/to/HOME_LAB_DIR/dns/dnsmasq.conf` (default: 150)
@@ -288,7 +288,7 @@ address=/pimlicoa.duckdns.org/10.200.0.60
 
 ### Step 4: Set VPN client DNS to Pi-hole's translated address
 **Important**: VPN client should use Pi-hole's translated address as DNS
-(e.g., `10.200.0.60`), not the VPN gateway. Since RFC-006, the interception
+(e.g., `<npm-translated-ip>`), not the VPN gateway. Since RFC-006, the interception
 rule matches on DNS query content rather than destination address, so
 pointing directly at Pi-hole means `WG_EASY_HOST` queries are still
 intercepted and rewritten, while every other query is resolved by Pi-hole

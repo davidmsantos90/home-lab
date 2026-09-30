@@ -28,8 +28,8 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/wg-easy/.env.example
 - `WG_EASY_HOST` (defaults to `pimlicoa.duckdns.org`)
 - `WG_EASY_ADMIN_USERNAME`, `WG_EASY_ADMIN_PASSWORD`
 - `TZ`
-- `WG_VPN_DNS` (defaults to `10.8.0.1`) for new/updated WireGuard client DNS. Peers query the wg0 gateway, and wg-easy DNATs wg0 UDP/TCP port 53 to Pi-hole internally (`DNSMASQ_IP:5353`). `10.200.0.0/24` remains reserved for anti-conflict LAN translation, not as the peer DNS endpoint.
-- `WG_VPN_ALLOWED_IPS` (defaults to `10.200.0.0/24,192.168.1.0/24`) for new/updated client routes
+- `WG_VPN_DNS` (defaults to `<wg-gateway-ip>`) for new/updated WireGuard client DNS. Peers query the wg0 gateway, and wg-easy DNATs wg0 UDP/TCP port 53 to Pi-hole internally (`DNSMASQ_IP:5353`). `<translated-lan-subnet>` remains reserved for anti-conflict LAN translation, not as the peer DNS endpoint.
+- `WG_VPN_ALLOWED_IPS` (defaults to `<translated-lan-subnet>,<home-lan-subnet>`) for new/updated client routes
 - `WG_VPN_PERSISTENT_KEEPALIVE` (defaults to `25`) seconds between client keepalive packets; prevents NAT/router mappings from expiring during idle periods (see [Troubleshooting](#troubleshooting))
 - `HOME_LAB_DIR` (defaults to `.`) base directory for WireGuard config/keys — set this to move this stack's persistent data elsewhere, e.g. an external drive (see the root [README.md](/Users/davsantos/github/misc/home-lab/README.md#relocating-a-services-data-home_lab_dir))
 
@@ -37,10 +37,10 @@ Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/wg-easy/.env.example
 
 For VPN clients connecting from overlapping private networks:
 
-- `HOME_LAN_SUBNET` (default: `192.168.1.0/24`) — The real home LAN subnet
-- `WG_TRANSLATED_LAN_SUBNET` (default: `10.200.0.0/24`) — Virtual subnet that represents home LAN resources to overlapping clients
+- `HOME_LAN_SUBNET` (default: `<home-lan-subnet>`) — The real home LAN subnet
+- `WG_TRANSLATED_LAN_SUBNET` (default: `<translated-lan-subnet>`) — Virtual subnet that represents home LAN resources to overlapping clients
 
-When configured, overlapping clients keep their normal WireGuard tunnel IPs, but they access LAN resources through translated addresses inside `WG_TRANSLATED_LAN_SUBNET`. For example, a LAN host at `192.168.1.60` is reached as `10.200.0.60`.
+When configured, overlapping clients keep their normal WireGuard tunnel IPs, but they access LAN resources through translated addresses inside `WG_TRANSLATED_LAN_SUBNET`. For example, a LAN host at `<pi-lan-ip>` is reached as `<npm-translated-ip>`.
 
 ### Important for wg-easy v15 hooks
 
@@ -122,10 +122,10 @@ docker exec wg-easy iptables -t nat -S | grep NETMAP
 # HOME_LAN_SUBNET and WG_TRANSLATED_LAN_SUBNET values.
 ```
 
-To test from an overlapping network (e.g., another `192.168.1.0/24` LAN):
-1. Ensure the client routes the translated subnet (`10.200.0.0/24`) through the tunnel
+To test from an overlapping network (e.g., another `<home-lan-subnet>` LAN):
+1. Ensure the client routes the translated subnet (`<translated-lan-subnet>`) through the tunnel
 2. Connect the client from the overlapping network
-3. Access LAN resources using translated addresses (for example `10.200.0.60` for `192.168.1.60`)
+3. Access LAN resources using translated addresses (for example `<npm-translated-ip>` for `<pi-lan-ip>`)
 4. Verify: handshake succeeds, translated LAN resources are accessible, Internet remains reachable
 
 ### Working hook values (Admin -> Hooks)
@@ -173,10 +173,10 @@ This exports:
 
 NPM no longer needs a dedicated NAT exception. Since removing the macvlan
 network, NPM publishes its ports directly on the host and is reachable at
-the Pi's own real LAN IP (`192.168.1.60`). The existing generic NETMAP rule
-(`10.200.0.0/24 → 192.168.1.0/24`) already covers it — overlapping VPN
-clients reach NPM at `10.200.0.60`, translated transparently to
-`192.168.1.60`. Only the wg-easy admin UI needs its own dedicated exception
+the Pi's own real LAN IP (`<pi-lan-ip>`). The existing generic NETMAP rule
+(`<translated-lan-subnet> → <home-lan-subnet>`) already covers it — overlapping VPN
+clients reach NPM at `<npm-translated-ip>`, translated transparently to
+`<pi-lan-ip>`. Only the wg-easy admin UI needs its own dedicated exception
 rule (see below), since it lives on the `homelab` bridge — a different
 subnet entirely, unreachable via the home-LAN NETMAP rule.
 
@@ -188,17 +188,17 @@ iptables -t nat -A POSTROUTING -s 192.168.100.9/32 -j SNAT --to 10.200.0.9
 Why:
 - `DNAT` rewrites the destination so wg-easy sends admin-UI traffic to the
   reachable `homelab` IP
-- `SNAT` rewrites the reply so the VPN client still sees `10.200.0.9`
+- `SNAT` rewrites the reply so the VPN client still sees `<wg-easy-admin-translated-ip>`
 - this exception must run before the subnet-wide `NETMAP` rule, or the
-  broader translation would claim `10.200.0.9` first (it's inside the
+  broader translation would claim `<wg-easy-admin-translated-ip>` first (it's inside the
   translated subnet)
 
 ### DNS forwarding and local answer overrides
 
 **Problem**: Services like NPM need different DNS responses for different client types:
-- LAN clients: resolve to physical IP `192.168.1.60` (direct access)
-- Tailnet clients: resolve to physical IP `192.168.1.60` (routed via Tailscale)
-- VPN clients: need translated IP `10.200.0.60` (only reachable via NETMAP)
+- LAN clients: resolve to physical IP `<pi-lan-ip>` (direct access)
+- Tailnet clients: resolve to physical IP `<pi-lan-ip>` (routed via Tailscale)
+- VPN clients: need translated IP `<npm-translated-ip>` (only reachable via NETMAP)
 
 **Solution**: all VPN client DNS queries go to the wg0 gateway, which DNATs them
 to dnsmasq/Pi-hole. dnsmasq then rewrites only the local homelab hostname
@@ -255,11 +255,11 @@ With the current stack:
   - Deluge: `<vpn-view-of-host>:8112`, torrent `6881/tcp+udp`
   - Plex: `<vpn-view-of-host>:32400`
   - Jellyfin: `<vpn-view-of-host>:8096`
-  - NPM: `192.168.1.60` (or translated equivalent when overlapping)
+  - NPM: `<pi-lan-ip>` (or translated equivalent when overlapping)
 - **Not intended over VPN**
   - wg-easy UI host bind is `127.0.0.1:51821` (Tailnet/local host only)
 
-For overlapping clients, use translated addresses in `WG_TRANSLATED_LAN_SUBNET` (for example `192.168.1.60 -> 10.200.0.60`).
+For overlapping clients, use translated addresses in `WG_TRANSLATED_LAN_SUBNET` (for example `<pi-lan-ip> -> <npm-translated-ip>`).
 
 Important: if a client connected from a non-overlapping network (for example a
 hotspot) can handshake but still cannot ping the normal WireGuard/LAN addresses,
@@ -283,20 +283,20 @@ it appears:
   `iptables -A FORWARD -i wg0 -j ACCEPT` (and the matching `-o wg0` rule) that
   accepts all wg0 traffic to any destination, for every client.
 - **Almost everything goes through one IP.** Nearly all homelab services are
-  reverse-proxied through NPM at a single translated address (`10.200.0.60`).
+  reverse-proxied through NPM at a single translated address (`<npm-translated-ip>`).
   NPM routes by HTTP `Host` header, not by source IP or destination port, so
-  scoping a client's `AllowedIPs` down to `10.200.0.60/32` doesn't distinguish
+  scoping a client's `AllowedIPs` down to `<npm-translated-ip>/32` doesn't distinguish
   between individual services — a client that can reach NPM at all can reach
   every proxy host behind it (Plex, Immich, Portainer, etc.), unless NPM's own
   per-proxy-host **Access Lists** feature is also used to restrict by source
   IP (see below).
 - **Direct-IP access bypasses NPM (and its Access Lists) entirely.** Because
-  each client's real WireGuard tunnel address (e.g. `10.8.0.5`) is preserved
+  each client's real WireGuard tunnel address (e.g. `<client-tunnel-ip>`) is preserved
   all the way to NPM (no SNAT is applied on that path — see
   [`bootstrap-hooks.sh`](./hooks/bootstrap-hooks.sh)'s NAT rules), NPM Access Lists
   keyed on that address do work for anything routed *through* NPM by domain
   name. But nothing today stops a client from hitting a service directly by
-  translated/LAN IP and port (e.g. `10.200.0.32:32400` for Plex), completely
+  translated/LAN IP and port (e.g. `<npm-translated-ip>:32400` for Plex), completely
   skipping NPM and any Access List configured there — because of the blanket
   `FORWARD` accept described above.
 

@@ -62,9 +62,9 @@ Known-good shape:
 |---|---|
 | LXC ID | `101` |
 | OS | Debian 13 |
-| IPv4 | `192.168.1.71/24` |
-| Gateway | `192.168.1.1` |
-| DNS | `192.168.1.60` (Pi-hole) |
+| IPv4 | `<jellyfin-lxc-ip>/24` |
+| Gateway | `<router-ip>` |
+| DNS | `<pihole-primary-ip>` (Pi-hole PRIMARY, Proxmox) |
 | Runtime | native Jellyfin packages inside the LXC |
 | Media path | bind-mounted media root exposed inside the LXC |
 
@@ -128,7 +128,7 @@ Add a proxy host in NPM:
 |---|---|
 | Domain | `jellyfin.pimlicoa.duckdns.org` |
 | Scheme | `http` |
-| Upstream host | `app-jellyfin` on the Pi Docker host, or `jellyfin.home.arpa` / `192.168.1.71` for a Proxmox LXC |
+| Upstream host | `app-jellyfin` on the Pi Docker host, or `jellyfin.home.arpa` / `<jellyfin-lxc-ip>` for a Proxmox LXC |
 | Upstream port | `8096` |
 | SSL cert | `*.pimlicoa.duckdns.org` (wildcard) |
 
