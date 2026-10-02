@@ -11,6 +11,11 @@ services:
     env_file:
       - .env
 
+    # This device mapping is required when the deployment runs on a host/LXC with a GPU available.
+    # If Immich is deployed in an environment without a GPU or /dev/dri, this entire devices block must be commented out.
+    devices:
+      - /dev/dri:/dev/dri
+
     depends_on:
       redis:
         condition: service_healthy
