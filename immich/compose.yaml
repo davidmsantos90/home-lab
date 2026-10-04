@@ -34,16 +34,20 @@ services:
 
     restart: unless-stopped
 
-  # immich-machine-learning:
-  #   container_name: app-${SERVICE}-machine-learning
-  #   image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
-  #   volumes:
-  #     - ./data/model-cache:/cache
-  #   env_file:
-  #     - .env
-  #   healthcheck:
-  #     disable: false
-  #   restart: unless-stopped
+  # The machine-learning service is optional but recommended for features such as
+  # face detection and smart search. Comment it out if the host does not meet
+  # Immich's minimum required hardware (for example, missing GPU/accelerator
+  # support or insufficient memory/VRAM for the ML workload).
+  immich-machine-learning:
+    container_name: app-${SERVICE}-machine-learning
+    image: ghcr.io/immich-app/immich-machine-learning:${IMMICH_VERSION:-release}
+    volumes:
+      - ./data/model-cache:/cache
+    env_file:
+      - .env
+    healthcheck:
+      disable: false
+    restart: unless-stopped
 
   redis:
     container_name: app-${SERVICE}-redis

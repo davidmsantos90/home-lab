@@ -36,6 +36,7 @@ services:
   wg-easy:
     image: ghcr.io/wg-easy/wg-easy:15
     container_name: wg-easy
+
     environment:
       INSECURE: "true"
       DISABLE_IPV6: "true"
@@ -54,18 +55,23 @@ services:
       # RFC-001: Overlap subnet translation
       HOME_LAN_SUBNET: ${HOME_LAN_SUBNET}
       WG_TRANSLATED_LAN_SUBNET: ${WG_TRANSLATED_LAN_SUBNET}
+
     volumes:
       - ${HOME_LAB_DIR:-.}/data:/etc/wireguard
       - /lib/modules:/lib/modules:ro
+
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+
     ports:
       - "51820:51820/udp"
-      - "127.0.0.1:51821:51821/tcp"
+      - "0.0.0.0:51821:51821/tcp"
+
     sysctls:
       net.ipv4.ip_forward: "1"
       net.ipv4.conf.all.src_valid_mark: "1"
+
     healthcheck:
       test:
         [
@@ -78,9 +84,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
     depends_on:
       dnsmasq:
         condition: service_healthy
+
     networks:
       wg_easy_internal: {}
       homelab:
