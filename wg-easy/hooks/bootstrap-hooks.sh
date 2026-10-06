@@ -74,36 +74,15 @@ if ! curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig" >/de
   exit 1
 fi
 
-# dnsmasq's IP on wg_easy_internal is pinned (see compose.yaml) specifically
-# so this doesn't need runtime resolution at all. Previously this WAS
-# dynamically resolved (via getent/docker inspect) because dnsmasq had no
-# static IP — but PostUp/PostDown embed this IP as a literal value in
-# wg-easy's persisted config, so any drift there (unpinned = dynamic Docker
-# IPAM reassigning it across restarts) silently made the saved rules stale,
-# forcing a hook-rerun + wg-easy-recreate cycle just to catch up. Pinning it
-# removes that whole class of bug: this value should now never change.
-DNSMASQ_IP="${DNSMASQ_IP:-172.28.0.2}"
-echo "Using dnsmasq IP: $DNSMASQ_IP"
+# dnsmasq was previously used as a DNS forwarder/rewriter for the translation
+# layer. With the translation layer removed, VPN clients point directly to
+# Pi-hole using WG_VPN_DNS (which now supports comma-separated IPs for failover).
+# These variables are no longer used but kept for reference.
+# DNSMASQ_IP="${DNSMASQ_IP:-172.28.0.2}"
 
-# RFC-007: ALL DNS queries from wg0 to destination port 53 are DNATed to
-# Pi-hole's internal listener at DNSMASQ_IP:5353. No DNS payload inspection.
-#
-# Likewise, the wg-easy-admin host exception MUST come before the broad
-# NETMAP catch-all below, since its destination IP (10.200.0.9) falls inside
-# the NETMAP's translated subnet (WG_TRANSLATED_LAN_SUBNET) — NETMAP would
-# otherwise translate it to an unrelated real LAN host (192.168.1.9) instead
-# of routing to the actual homelab-bridge container. NPM no longer needs a
-# similar exception: since removing the macvlan network, it's reached via
-# its own real LAN IP, already covered by the general NETMAP translation
-# below.
-#
-# The wg-easy API stores PostUp/PostDown as a single shell-command string
-# (semicolon-separated), so the multi-line lists below get joined into one
-# line each by join_hook_lines() — but keeping them one-per-line here makes
-# this script easy to read/edit/diff. `$DEFAULT_IF` is intentionally left
-# unexpanded (escaped as \$DEFAULT_IF) since it must be evaluated at PostUp/
-# PostDown runtime on the Pi, every time the interface comes up/down — not
-# once here at bootstrap time.
+# RFC-007: ALL DNS queries from wg0 point directly to WG_VPN_DNS (Pi-hole IPs).
+# WG_VPN_DNS can include multiple comma-separated IPs for failover (e.g. "10.10.10.75,10.10.10.60")
+# WireGuard clients will try them in order, falling back if the first is unreachable.
 join_hook_lines() {
   result=""
   while IFS= read -r line; do
@@ -120,14 +99,8 @@ join_hook_lines() {
 POST_UP="$(join_hook_lines <<EOF
 DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1)
 iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "\$DEFAULT_IF" -j MASQUERADE
-iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
-iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
-iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
-iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
 iptables -t filter -N WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t filter -F WG_INFRASTRUCTURE
-iptables -t filter -A WG_INFRASTRUCTURE -i wg0 -p udp -d ${DNSMASQ_IP}/32 --dport 5353 -j ACCEPT
-iptables -t filter -A WG_INFRASTRUCTURE -i wg0 -p tcp -d ${DNSMASQ_IP}/32 --dport 5353 -j ACCEPT
 iptables -t filter -A WG_INFRASTRUCTURE -j RETURN
 iptables -t filter -D FORWARD -j WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t filter -I FORWARD 1 -j WG_INFRASTRUCTURE
@@ -140,10 +113,6 @@ EOF
 POST_DOWN="$(join_hook_lines <<EOF
 DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1)
 iptables -t nat -D POSTROUTING -s 10.8.0.0/24 -o "\$DEFAULT_IF" -j MASQUERADE
-iptables -t nat -D PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
-iptables -t nat -D PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
-iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
-iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUERADE
 iptables -t filter -D FORWARD -j WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t filter -F WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t filter -X WG_INFRASTRUCTURE 2>/dev/null || true
@@ -167,11 +136,10 @@ EOF
 
 # Idempotency check: only POST (and thus only trigger the caller's
 # force-recreate-to-apply-PostUp/PostDown cycle) if the stored hooks
-# actually differ from what we'd write. Once dnsmasq's IP is pinned, the
-# desired PostUp/PostDown never change between runs, so on every ordinary
-# restart this ends up being a no-op — saving the disruptive wg-easy
-# recreate that would otherwise happen on every single restart for no
-# reason. Substring match (not full JSON equality) is intentional: it's
+# actually differ from what we'd write. PostUp/PostDown are stable across
+# restarts, so on every ordinary restart this ends up being a no-op — saving the
+# disruptive wg-easy recreate that would otherwise happen on every single restart
+# for no reason. Substring match (not full JSON equality) is intentional: it's
 # resilient to extra fields/ordering in the GET response, and both sides
 # use the same simple backslash/quote JSON-escaping for this content.
 CURRENT_HOOKS="$(curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/hooks")"
