@@ -41,11 +41,11 @@ services:
       net.ipv4.ip_forward: "1"
       net.ipv4.conf.all.src_valid_mark: "1"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:51821"]
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:51821"]
       interval: 1m
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 40s
     networks:
       homelab:
         ipv4_address: 192.168.100.9    # Static homelab IP so it never collides with
