@@ -20,21 +20,19 @@ else
   WG_EASY_API_URL="${WG_EASY_API_URL:-http://localhost:51821}"
 fi
 
-HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-192.168.1.0/24}"
-WG_TRANSLATED_LAN_SUBNET="${WG_TRANSLATED_LAN_SUBNET:-10.200.0.0/24}"
+HOME_LAN_SUBNET="${HOME_LAN_SUBNET:-10.10.10.0/24}"
 # RFC-007: peers should use the WireGuard gateway as DNS endpoint. All DNS
 # queries sent to wg0:53 are infrastructure-forwarded to Pi-hole internally.
 WG_VPN_DNS="${WG_VPN_DNS:-10.8.0.1}"
-WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.200.0.0/24,192.168.1.0/24}"
+WG_VPN_ALLOWED_IPS="${WG_VPN_ALLOWED_IPS:-10.8.0.0/24,10.10.10.0/24}"
 # WireGuard-recommended keepalive so client-side NAT/router mappings don't
 # expire during idle periods (prevents needing to manually reconnect after
 # the connection has been idle for a while).
 WG_VPN_PERSISTENT_KEEPALIVE="${WG_VPN_PERSISTENT_KEEPALIVE:-25}"
-# Expose wg-easy's own admin UI to VPN clients at a dedicated translated IP,
+# Expose wg-easy's own admin UI to VPN clients via the homelab network,
 # mapped 1:1 to wg-easy's pinned homelab-bridge IP (must match the "wg-easy"
 # service's ipv4_address in compose.yaml).
 WG_EASY_ADMIN_HOMELAB_IP="${WG_EASY_ADMIN_HOMELAB_IP:-192.168.100.9}"
-WG_EASY_ADMIN_TRANSLATED_IP="${WG_EASY_ADMIN_TRANSLATED_IP:-10.200.0.9}"
 # Domain rewritten by dnsmasq for overlapping-subnet clients.
 WG_EASY_HOST="${WG_EASY_HOST:-pimlicoa.duckdns.org}"
 COOKIES_FILE="/tmp/wg-easy-cookies.txt"
@@ -122,7 +120,6 @@ join_hook_lines() {
 POST_UP="$(join_hook_lines <<EOF
 DEFAULT_IF=\$(ip route show default | cut -d' ' -f5 | head -n1)
 iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o "\$DEFAULT_IF" -j MASQUERADE
-modprobe xt_NETMAP || true
 iptables -t nat -A PREROUTING -i wg0 -p udp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
 iptables -t nat -A PREROUTING -i wg0 -p tcp --dport 53 -j DNAT --to-destination ${DNSMASQ_IP}:5353
 iptables -t nat -A POSTROUTING -d ${DNSMASQ_IP}/32 -p udp --dport 5353 -j MASQUERADE
@@ -134,10 +131,6 @@ iptables -t filter -A WG_INFRASTRUCTURE -i wg0 -p tcp -d ${DNSMASQ_IP}/32 --dpor
 iptables -t filter -A WG_INFRASTRUCTURE -j RETURN
 iptables -t filter -D FORWARD -j WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t filter -I FORWARD 1 -j WG_INFRASTRUCTURE
-iptables -t nat -A PREROUTING -d ${WG_EASY_ADMIN_TRANSLATED_IP}/32 -j DNAT --to ${WG_EASY_ADMIN_HOMELAB_IP}
-iptables -t nat -A POSTROUTING -s ${WG_EASY_ADMIN_HOMELAB_IP}/32 -j SNAT --to ${WG_EASY_ADMIN_TRANSLATED_IP}
-iptables -t nat -A PREROUTING -d ${WG_TRANSLATED_LAN_SUBNET} -j NETMAP --to ${HOME_LAN_SUBNET}
-iptables -t nat -A POSTROUTING -s ${HOME_LAN_SUBNET} -j NETMAP --to ${WG_TRANSLATED_LAN_SUBNET}
 iptables -A INPUT -p udp -m udp --dport 51820 -j ACCEPT
 iptables -A FORWARD -i wg0 -j ACCEPT
 iptables -A FORWARD -o wg0 -j ACCEPT
@@ -154,10 +147,6 @@ iptables -t nat -D POSTROUTING -d ${DNSMASQ_IP}/32 -p tcp --dport 5353 -j MASQUE
 iptables -t filter -D FORWARD -j WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t filter -F WG_INFRASTRUCTURE 2>/dev/null || true
 iptables -t filter -X WG_INFRASTRUCTURE 2>/dev/null || true
-iptables -t nat -D PREROUTING -d ${WG_EASY_ADMIN_TRANSLATED_IP}/32 -j DNAT --to ${WG_EASY_ADMIN_HOMELAB_IP}
-iptables -t nat -D POSTROUTING -s ${WG_EASY_ADMIN_HOMELAB_IP}/32 -j SNAT --to ${WG_EASY_ADMIN_TRANSLATED_IP}
-iptables -t nat -D PREROUTING -d ${WG_TRANSLATED_LAN_SUBNET} -j NETMAP --to ${HOME_LAN_SUBNET}
-iptables -t nat -D POSTROUTING -s ${HOME_LAN_SUBNET} -j NETMAP --to ${WG_TRANSLATED_LAN_SUBNET}
 iptables -D INPUT -p udp -m udp --dport 51820 -j ACCEPT
 iptables -D FORWARD -i wg0 -j ACCEPT
 iptables -D FORWARD -o wg0 -j ACCEPT

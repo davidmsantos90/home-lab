@@ -34,10 +34,6 @@ home-lab/
 │   ├── compose.yaml
 │   ├── .env
 │   └── README.md
-├── mealie/
-│   ├── compose.yaml
-│   ├── .env
-│   └── README.md
 ```
 
 ## Services
@@ -50,7 +46,6 @@ home-lab/
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
 | **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
 | **Jellyfin** | `8096` | `https://jellyfin.pimlicoa.duckdns.org` |
-| **Mealie** | `9925` | `https://mealie.pimlicoa.duckdns.org` |
 | **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
 | **App Shell** | `3000` | `http://<host-ip>:3000` |
 | **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
@@ -59,47 +54,6 @@ home-lab/
 
 - Docker + Docker Compose v2
 - A [Tailscale](https://tailscale.com/) account
-
-## Alternative Proxmox / LXC deployments
-
-The Raspberry Pi remains the network/control-plane host for:
-
-- [Pi-hole](/Users/davsantos/github/misc/home-lab/pihole)
-- [Nginx Proxy Manager](/Users/davsantos/github/misc/home-lab/nginx-proxy-manager)
-- [wg-easy](/Users/davsantos/github/misc/home-lab/wg-easy)
-
-Heavier application workloads can instead live on a separate Proxmox host in
-their own LXCs. The current documented alternatives are:
-
-| Service | Example LXC IPv4 | Runtime in LXC | Why move it |
-|---|---|---|---|
-| Immich | `<immich-lxc-ip>` | Docker Compose inside Debian 13 LXC | offload DB/app work from the Pi |
-| Jellyfin | `<jellyfin-lxc-ip>` | native Debian package inside Debian 13 LXC | Intel iGPU / Quick Sync transcoding |
-| Deluge | `<deluge-lxc-ip>` | native Debian package inside Debian 13 LXC | simpler plugin compatibility and external-disk mounts |
-
-Important: the Docker `homelab` bridge is local to each Docker host. If NPM is
-running on the Raspberry Pi and a service is running in a Proxmox LXC, NPM
-must target that service by its LAN IP or by a Pi-hole local DNS record such as
-`jellyfin.home.arpa` — not by a container name from the Proxmox host.
-
-Preferred automation direction for these LXC-based alternatives:
-
-1. **Phase 1 (Proxmox host):** create or reuse the LXC, configure static
-   networking, attach any bind mounts or GPU devices, and start the container.
-2. **Phase 2 (inside the LXC):** install packages/runtime, clone or update this
-   repository when applicable, write environment/config files, start the
-   service, and run validation checks.
-
-Keep this automation idempotent and conservative:
-
-- centralize variables such as CT ID, IP, DNS, bridge, storage and media paths
-- do not automatically modify Pi-hole or NPM
-- do not store application passwords or API tokens in Git
-- stop before interactive application setup when secrets or one-time UI flows
-  are required
-
-See [RFC-001: Proxmox Service Provisioning Automation](/Users/davsantos/github/misc/home-lab/docs/RFC-001-proxmox-service-provisioning-automation.md)
-for the proposed future provisioning model.
 
 ## Relocating a service's data (`HOME_LAB_DIR`)
 
@@ -158,7 +112,7 @@ cd nginx-proxy-manager
 docker compose up -d
 
 # Then for each other service:
-cd ../pihole   # (or immich, portainer, deluge, plex, jellyfin, mealie)
+cd ../pihole   # (or immich, portainer, deluge, plex)
 # Edit .env — at minimum set TZ and any service-specific variables
 docker compose up -d
 ```
@@ -198,9 +152,9 @@ sudo ss -tulnp | grep :53
    docker compose up -d
    ```
 
-5. Open the admin UI at `http://127.0.0.1:51821` on the Docker host (or `http://<wg-easy-admin-translated-ip>:51821` once connected via the VPN — see below), sign in with the credentials in `.env`, and create a client profile.
+5. Open the admin UI at `http://127.0.0.1:51821` on the Docker host (or `http://10.200.0.9:51821` once connected via the VPN — see below), sign in with the credentials in `.env`, and create a client profile.
 
-`wg-easy` attaches directly to `homelab` with its own pinned IP; the only public service is the authenticated WireGuard UDP endpoint. The web UI is not exposed publicly — it's reachable locally at `http://127.0.0.1:51821` on the host, and to already-connected VPN clients at `http://<wg-easy-admin-translated-ip>:51821`. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
+`wg-easy` attaches directly to `homelab` with its own pinned IP; the only public service is the authenticated WireGuard UDP endpoint. The web UI is not exposed publicly — it's reachable locally at `http://127.0.0.1:51821` on the host, and to already-connected VPN clients at `http://10.200.0.9:51821`. Keep `wg-easy/data/` backed up: it contains the server and client keys. After the first successful start, remove the `INIT_*` entries from [`wg-easy/compose.yaml`](wg-easy/compose.yaml) and restart the stack so the bootstrap password is no longer present in the running container configuration.
 
 RFC-007's future management UI is planned as a **React** app using
 [hv-uikit-react](https://github.com/pentaho/hv-uikit-react); it should sit on
@@ -249,22 +203,22 @@ Because the Tailscale container has `ports:` bound to `0.0.0.0` on the host, you
 | Immich | `http://<host-ip>:2283` |
 | Portainer | `http://<host-ip>:9000` |
 | Deluge | `http://<host-ip>:8112` |
-| NPM admin | `http://<pi-lan-ip>:81` |
+| NPM admin | `http://10.10.10.76:81` |
 | wg-easy admin | `http://127.0.0.1:51821` (host-local only) |
 
 You can **also** route through NPM using your DuckDNS subdomains for a consistent URL across LAN and Tailnet (see NPM section below).
 
 | Access method | Example | Needs Tailscale? | Needs NPM? |
 |---|---|---|---|
-| Direct IP + port | `http://<lan-ip>:2283` | ❌ | ❌ |
+| Direct IP + port | `http://10.10.10.10:2283` | ❌ | ❌ |
 | Local domain via NPM | `https://immich.pimlicoa.duckdns.org` | ❌ | ✅ |
 | Tailnet | `https://immich.<tailnet>.ts.net` | ✅ | ❌ |
 
-> **Note**: `nginx-proxy-manager` and `wg-easy` are exceptions to the sidecar pattern above — neither runs a Tailscale sidecar. NPM attaches directly to `homelab` and publishes its ports directly on the host; wg-easy attaches directly to `homelab`. Reach NPM's admin UI over LAN (`http://<pi-lan-ip>:81`) or through the wg-easy VPN (`http://<npm-translated-ip>:81`); reach wg-easy's own admin UI locally (`http://127.0.0.1:51821`) or through its own VPN (`http://<wg-easy-admin-translated-ip>:51821`).
+> **Note**: `nginx-proxy-manager` and `wg-easy` are exceptions to the sidecar pattern above — neither runs a Tailscale sidecar. NPM attaches directly to `homelab` and publishes its ports directly on the host; wg-easy attaches directly to `homelab`. Reach NPM's admin UI over LAN (`http://10.10.10.76:81`) or through the wg-easy VPN (`http://10.8.0.1` for gateway/DNS); reach wg-easy's own admin UI locally (`http://127.0.0.1:51821`) or through its own VPN via NPM proxy.
 
 ## Nginx Proxy Manager
 
-NPM publishes ports 80/443/81 directly on the host (`ports:` in its `compose.yaml`), so it's reachable at the Pi's own real LAN IP (`<pi-lan-ip>`) without needing a dedicated network attachment. It is also on the `homelab` bridge to reach other services.
+NPM publishes ports 80/443/81 directly on the host (`ports:` in its `compose.yaml`), so it's reachable at NPM LXC's real LAN IP (`10.10.10.76`) without needing a dedicated network attachment. It is also on the `homelab` bridge to reach other services.
 
 ### NPM upstream targets
 
@@ -278,33 +232,22 @@ When adding proxy hosts in NPM, use the application container/service name as th
 | Deluge | `app-deluge` | `8112` |
 | Plex | `app-plex` | `32400` |
 | Jellyfin | `app-jellyfin` | `8096` |
-| Mealie | `app-mealie` | `9000` |
-| App Shell | `app-app-shell` | `3000` |
 
 For services running **on the host** (not yet in Docker), use the `homelab` bridge gateway instead — bridge containers can't reach the host's main LAN IP directly, but can always reach it via the bridge gateway:
 
 | Service (on host) | NPM upstream host | NPM upstream port |
 |---|---|---|
-| Plex | `<homelab-bridge-gateway-ip>` | `32400` |
+| Plex | `192.168.100.1` | `32400` |
 
-The gateway is pinned to `<homelab-bridge-gateway-ip>` by the subnet in `compose.yaml`. Once a service is migrated to Docker, switch its upstream to the container name.
-
-For services moved off the Raspberry Pi and into Proxmox LXCs, use Pi-hole
-local DNS records or fixed LXC IPs instead:
-
-| Service (Proxmox LXC) | Preferred upstream host | Upstream port |
-|---|---|---|
-| Jellyfin | `jellyfin.home.arpa` | `8096` |
-| Immich | `immich.home.arpa` or `<immich-lxc-ip>` | `2283` |
-| Deluge WebUI | `deluge.home.arpa` or `<deluge-lxc-ip>` | `8112` |
+The gateway is pinned to `192.168.100.1` by the subnet in `compose.yaml`. Once a service is migrated to Docker, switch its upstream to the container name.
 
 ### Consistent URLs across LAN and Tailnet
 
 With Pi-hole as DNS for both LAN and Tailnet, you can use the same subdomain everywhere:
 
-1. **Pi-hole PRIMARY** (`<pihole-primary-ip>`, Proxmox-hosted) → Local DNS → DNS Records: add one A record pointing your domain to the Pi's real LAN IP. Edit records on PRIMARY only — it's the source of truth and syncs down to the Raspberry Pi SECONDARY (`<pi-lan-ip>`) via [Nebula Sync](/Users/davsantos/github/misc/home-lab/pihole/README.md#pi-hole-primarysecondary-sync-nebula-sync):
+1. **Pi-hole** → Local DNS → DNS Records: add one A record pointing your domain to the home LAN gateway:
    ```
-   pimlicoa.duckdns.org → <pi-lan-ip>
+   pimlicoa.duckdns.org → 10.10.10.1
    ```
 2. Add CNAME records for each subdomain pointing to the root:
    ```
@@ -312,7 +255,6 @@ With Pi-hole as DNS for both LAN and Tailnet, you can use the same subdomain eve
    portainer.pimlicoa.duckdns.org → pimlicoa.duckdns.org
    pihole.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
    deluge.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
-   mealie.pimlicoa.duckdns.org    → pimlicoa.duckdns.org
    npm.pimlicoa.duckdns.org       → pimlicoa.duckdns.org
    ```
 3. **NPM**: add a proxy host for each subdomain, using the wildcard cert (`*.pimlicoa.duckdns.org`).
@@ -325,37 +267,31 @@ NPM default credentials (change on first login):
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  homelab bridge (<homelab-bridge-subnet>)        │
-│  gateway: <homelab-bridge-gateway-ip> (host)     │
-│                                                   │
-│  nginx-proxy-manager (host-published ports)      │
-│  wg-easy → <wg-easy-admin-homelab-ip>            │
-│  app-pihole, app-immich-server,                  │
-│  app-portainer, app-deluge, app-plex,            │
-│  app-jellyfin, app-mealie (dynamic IPs)          │
+│  homelab bridge (192.168.100.0/24)              │
+│  gateway: 192.168.100.1 (host)                  │
+│                                                  │
+│  nginx-proxy-manager (host-published ports)     │
+│  wg-easy → 192.168.100.9                        │
+│  app-pihole, app-immich-server,                 │
+│  app-portainer, app-deluge, app-plex,           │
+│  app-jellyfin (dynamic IPs, unpinned)           │
 └─────────────────────────────────────────────────┘
 
 nginx-proxy-manager also publishes ports 80/443/81 directly on the host,
-reachable at the Pi's real LAN IP (<pi-lan-ip>).
+reachable at the NPM LXC's real LAN IP (10.10.10.76).
 ```
 
 Each service's `compose.yaml` also defines a **private internal network** (e.g. `immich_internal`) for intra-service communication (immich ↔ postgres ↔ redis). Those containers are not reachable from outside.
 
 ### Accessing admin UIs over the wg-easy VPN
 
-Connected VPN clients (`<translated-lan-subnet>`) reach NPM's admin UI via the generic
-NETMAP subnet translation (same as any other real-LAN service, e.g.
-`http://<npm-translated-ip>:81` → `<pi-lan-ip>:81`). wg-easy's own admin UI lives on
-the `homelab` bridge — a different subnet entirely, unreachable via that
-NETMAP rule — so it gets its own dedicated host-exception NAT rule applied
-by `wg-easy/bootstrap-hooks.sh` (see the ordering note in that script — this
-exception must come before the broad NETMAP subnet translation):
+Connected VPN clients (`10.8.0.0/24`) reach NPM and other services directly via the wg-easy gateway without needing subnet translation. DNS queries resolve to real home LAN IPs (`10.10.10.x`).
 
 | Service           | Translated VPN IP | Real homelab-bridge IP | Port  |
 |-------------------|--------------------|-------------------------|-------|
-| wg-easy admin UI  | `<wg-easy-admin-translated-ip>`       | `<wg-easy-admin-homelab-ip>`         | `51821` |
+| wg-easy admin UI  | `10.200.0.9`       | `192.168.100.9`         | `51821` |
 
-e.g. `http://<wg-easy-admin-translated-ip>:51821` reaches wg-easy's own management UI while
+e.g. `http://10.200.0.9:51821` reaches wg-easy's own management UI while
 connected to the VPN. This is only reachable by authenticated WireGuard
 peers, never the public internet — no port is forwarded on the router for
 `51821`, and `wg-easy`'s own `51821/tcp` port is bound to
@@ -521,7 +457,7 @@ just `./lab.sh restart <service>`).
 
 **Symptom**: Connected to the wg-easy VPN (or full-tunnel), but *no* domain
 resolves — not just `*.pimlicoa.duckdns.org`, but every domain, including
-plain internet sites. Direct IP access (e.g. `curl http://<npm-translated-ip>:81`)
+plain internet sites. Direct IP access (e.g. `curl http://10.200.0.60:81`)
 still works fine; only DNS is broken.
 
 **Root cause**: `wg-easy-hooks-bootstrap` (the container that automatically
@@ -646,9 +582,9 @@ docker compose -f wg-easy/compose.yaml up -d --force-recreate wg-easy
 
 ### Android VPN client can reach raw IPs but domains time out (client-side, not a bug)
 
-If `curl`/browsing a raw translated IP (e.g. `http://<npm-translated-ip>:81`) works over
+If `curl`/browsing a raw translated IP (e.g. `http://10.200.0.60:81`) works over
 the VPN but `*.pimlicoa.duckdns.org` domains time out, and `nslookup
-<domain> <wg-translated-gateway-ip>` from the phone (e.g. via Termux) resolves correctly,
+<domain> 10.200.0.1` from the phone (e.g. via Termux) resolves correctly,
 this is **not** a server-side bug — it's Android's **Private DNS**
 ("DNS-over-TLS") setting. When set to `Automatic`, Android opportunistically
 tries DoT (port 853) against the VPN-supplied DNS server first; since

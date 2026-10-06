@@ -10,7 +10,7 @@ clientmethod: none
 # Allow connections from trusted networks only; firewall (wg-easy) controls
 # which destination hosts/ports are reachable. Customize these ranges for your setup.
 client pass {
-    from: 192.168.1.0/24 to: 0.0.0.0/0
+    from: 10.10.10.0/24 to: 0.0.0.0/0
 }
 
 client pass {
@@ -22,7 +22,7 @@ client block {
 }
 
 socks pass {
-    from: 192.168.1.0/24 to: 0.0.0.0/0
+    from: 10.10.10.0/24 to: 0.0.0.0/0
 }
 
 socks block {

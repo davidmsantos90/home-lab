@@ -12,7 +12,7 @@ Reverse proxy service for local domains and TLS management on the LAN.
 Copy [`.env.example`](/Users/davsantos/github/misc/home-lab/nginx-proxy-manager/.env.example) to `.env` and set:
 
 - `TZ`
-- `PIHOLE_LAN_IP` (defaults to `<pi-lan-ip>`) — Pi-hole's LAN IP, set as this
+- `PIHOLE_LAN_IP` (defaults to `10.10.10.75`) — Pi-hole's LAN IP, set as this
   container's primary DNS resolver so NPM proxy hosts can target Pi-hole
   "Local DNS Records" (e.g. `little-pi4.lan`) directly in the Forward
   Hostname/IP field, instead of Docker container names or raw IPs

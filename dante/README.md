@@ -27,7 +27,7 @@ Edit `dante.conf` to:
 - Allow client connections from your network ranges (see `client pass` rules)
 - Define which destinations are accessible through the proxy (see `socks pass` rules)
 
-The example configuration allows connections from `<home-lan-subnet>` and `<wg-subnet>`. Update these to match your actual network topology.
+The example configuration allows connections from `10.10.10.0/24` and `10.8.0.0/24`. Update these to match your actual network topology.
 
 **Access control:** No authentication is required at the proxy level. Instead, configure firewall rules in wg-easy to control which clients can access the proxy and which destinations are reachable through it.
 
