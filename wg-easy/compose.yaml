@@ -47,7 +47,6 @@ services:
       retries: 3
       start_period: 30s
     networks:
-      wg_easy_internal: {}
       homelab:
         ipv4_address: 192.168.100.9    # Static homelab IP so it never collides with
                                         # other services' pinned/dynamic IPs (e.g. NPM's .5)
@@ -72,11 +71,9 @@ services:
       - ./hooks/bootstrap-hooks.sh:/bootstrap-hooks.sh:ro
     entrypoint: ["/bin/sh", "/bootstrap-hooks.sh"]
     networks:
-      - wg_easy_internal
+      - homelab
     restart: "no"
 
 networks:
-  wg_easy_internal:
-    name: wg_easy_bridge
   homelab:
     external: true
