@@ -1,8 +1,8 @@
 # Home Lab
 
-Self-hosted services running in Docker, each accessible via [Tailscale](https://tailscale.com/) on your Tailnet **and** locally on your LAN without Tailscale.
+Self-hosted services running in Docker, accessible locally on the LAN and through the home VPN or Nginx Proxy Manager when needed.
 
-Follows the [ScaleTail](https://github.com/tailscale-dev/ScaleTail) sidecar pattern: every service gets a dedicated Tailscale container that handles Tailnet connectivity, and a shared `homelab` Docker network lets Nginx Proxy Manager route local traffic to all services.
+The stack uses a shared `homelab` Docker network for service-to-service communication, while the proxy and VPN layers handle the public-facing access paths.
 
 ## Project structure
 
@@ -30,6 +30,10 @@ home-lab/
 ├── plex/
 │   ├── compose.yaml
 │   └── .env
+├── proxmox-backup/
+│   ├── compose.yaml
+│   ├── .env.example
+│   └── README.md
 ├── jellyfin/
 │   ├── compose.yaml
 │   ├── .env
@@ -38,28 +42,29 @@ home-lab/
 
 ## Services
 
-| Service | Local port(s) | Tailnet URL |
+| Service | Local port(s) | Common access URL |
 |---|---|---|
-| **Pi-hole** | `53` (DNS), `8080` (admin) | `https://pihole.<tailnet>.ts.net` |
-| **Immich** | `2283` | `https://immich.<tailnet>.ts.net` |
-| **Portainer** | `9000` | `https://portainer.<tailnet>.ts.net` |
-| **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.<tailnet>.ts.net` |
-| **Plex** | `32400` | `https://plex.<tailnet>.ts.net` |
+| **Pi-hole** | `53` (DNS), `8080` (admin) | `https://pihole.pimlicoa.duckdns.org` |
+| **Immich** | `2283` | `https://immich.pimlicoa.duckdns.org` |
+| **Portainer** | `9000` | `https://portainer.pimlicoa.duckdns.org` |
+| **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.pimlicoa.duckdns.org` |
+| **Plex** | `32400` | `https://plex.pimlicoa.duckdns.org` |
 | **Jellyfin** | `8096` | `https://jellyfin.pimlicoa.duckdns.org` |
-| **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | Tailscale IP + port `81` (run `tailscale ip -4` on host) |
+| **Proxmox Backup Server** | `8007` | `http://<pi-lan-ip>:8007` |
+| **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | `http://<pi-lan-ip>:81` |
 | **App Shell** | `3000` | `http://<host-ip>:3000` |
 | **wg-easy** | `51820/udp` (WireGuard) | `pimlicoa.duckdns.org:51820` |
 
 ## Prerequisites
 
 - Docker + Docker Compose v2
-- A [Tailscale](https://tailscale.com/) account
+- A working home network and DNS setup (for example DuckDNS / Pi-hole)
 
 ## Relocating a service's data (`HOME_LAB_DIR`)
 
 Every service exposes a `HOME_LAB_DIR` environment variable (in its `.env.example`)
 that sets the base directory for that service's persistent config/state
-volumes (Tailscale state, app config, database data, etc). It defaults to
+volumes (remote-access VPN state, app config, database data, etc). It defaults to
 `.` — the service's own directory — so nothing changes unless you set it.
 
 Set it in a service's `.env` to move its data elsewhere, e.g. an external
@@ -98,9 +103,9 @@ docker compose up
 
 The `init` container prints a confirmation and exits. The network persists and is used by all services.
 
-### 2. Get a Tailscale Auth Key
+### 2. Configure the service credentials and secrets
 
-Go to [Tailscale Admin → Keys](https://login.tailscale.com/admin/settings/keys) and generate a **reusable** auth key. You'll add it to each service's `.env`.
+Create or update the `.env` files for each service with the required secrets, ports, and local paths before startup.
 
 ### 3. Configure and start each service
 
@@ -132,7 +137,7 @@ sudo ss -tulnp | grep :53
 
 ### 5. WireGuard access with wg-easy
 
-[`wg-easy/compose.yaml`](wg-easy/compose.yaml) provides WireGuard access for devices that cannot use Tailscale. Its DuckDNS companion updates `pimlicoa.duckdns.org` with the home connection's public IPv4 address, and wg-easy creates client profiles using that hostname.
+[`wg-easy/compose.yaml`](wg-easy/compose.yaml) provides WireGuard access for devices that cannot use remote-access VPN. Its DuckDNS companion updates `pimlicoa.duckdns.org` with the home connection's public IPv4 address, and wg-easy creates client profiles using that hostname.
 
 1. In DuckDNS, confirm that the `pimlicoa` subdomain exists and copy its token.
 2. Create the local environment file and set a long, unique admin password:
@@ -172,30 +177,13 @@ docker compose up -d
 
 ## How access works
 
-Most services use the **Tailscale sidecar pattern**: the app container has no network stack of its own — it uses `network_mode: service:tailscale` to share the Tailscale container's network namespace. This means any port the app binds to (e.g. immich on `:2283`) is actually bound inside the Tailscale container.
+Most services are published either directly on the host via Docker `ports:` mappings or through Nginx Proxy Manager on the shared `homelab` bridge. The proxy handles the public-facing HTTPS endpoints, while the underlying containers stay on the local Docker network.
 
-```
-┌──────────────────────────────────────────────────────┐
-│  tailscale-immich container                          │
-│  ├── tailscaled  ──────────────────→ Tailnet (HTTPS) │
-│  └── [shared network namespace]  ──→ host ports      │
-│                                                      │
-│  app-immich-server (no own network stack)            │
-│  └── listens on :2283  ──→ exits via tailscale-immich│
-└──────────────────────────────────────────────────────┘
-```
-
-### Tailnet access
-
-`TS_SERVE_CONFIG` instructs the Tailscale daemon to:
-1. Accept HTTPS on port 443 on the Tailnet IP (automatic TLS cert, no firewall rules needed)
-2. Reverse-proxy to `http://127.0.0.1:<port>` — localhost within the shared namespace
-
-Result: any device on your Tailnet can reach `https://immich.<tailnet>.ts.net` directly.
+There are a few exceptions, notably `nginx-proxy-manager` itself and `wg-easy`, which attach directly to `homelab` and publish only the ports they need.
 
 ### Local access
 
-Because the Tailscale container has `ports:` bound to `0.0.0.0` on the host, you can access services **directly by IP+port** without Tailscale and without NPM:
+Because several services bind to `0.0.0.0` on the host, you can reach them directly by IP and port without the proxy:
 
 | Service | Direct local URL |
 |---|---|
@@ -206,15 +194,15 @@ Because the Tailscale container has `ports:` bound to `0.0.0.0` on the host, you
 | NPM admin | `http://10.10.10.76:81` |
 | wg-easy admin | `http://127.0.0.1:51821` (host-local only) |
 
-You can **also** route through NPM using your DuckDNS subdomains for a consistent URL across LAN and Tailnet (see NPM section below).
+You can also route through NPM using the same DuckDNS subdomains everywhere on the LAN and over the VPN.
 
-| Access method | Example | Needs Tailscale? | Needs NPM? |
-|---|---|---|---|
-| Direct IP + port | `http://10.10.10.10:2283` | ❌ | ❌ |
-| Local domain via NPM | `https://immich.pimlicoa.duckdns.org` | ❌ | ✅ |
-| Tailnet | `https://immich.<tailnet>.ts.net` | ✅ | ❌ |
+| Access method | Example | Needs NPM? |
+|---|---|---|
+| Direct IP + port | `http://10.10.10.10:2283` | ❌ |
+| Local domain via NPM | `https://immich.pimlicoa.duckdns.org` | ✅ |
+| VPN access | `https://immich.pimlicoa.duckdns.org` | ✅ |
 
-> **Note**: `nginx-proxy-manager` and `wg-easy` are exceptions to the sidecar pattern above — neither runs a Tailscale sidecar. NPM attaches directly to `homelab` and publishes its ports directly on the host; wg-easy attaches directly to `homelab`. Reach NPM's admin UI over LAN (`http://10.10.10.76:81`) or through the wg-easy VPN (`http://10.8.0.1` for gateway/DNS); reach wg-easy's own admin UI locally (`http://127.0.0.1:51821`) or through its own VPN via NPM proxy.
+> **Note**: `nginx-proxy-manager` and `wg-easy` are exceptions to the standard Docker service layout. NPM publishes ports directly on the host; wg-easy attaches directly to `homelab` and exposes only its VPN endpoint and locally reachable admin UI.
 
 ## Nginx Proxy Manager
 
@@ -241,9 +229,9 @@ For services running **on the host** (not yet in Docker), use the `homelab` brid
 
 The gateway is pinned to `192.168.100.1` by the subnet in `compose.yaml`. Once a service is migrated to Docker, switch its upstream to the container name.
 
-### Consistent URLs across LAN and Tailnet
+### Consistent URLs across LAN and VPN
 
-With Pi-hole as DNS for both LAN and Tailnet, you can use the same subdomain everywhere:
+With Pi-hole as DNS for both LAN and VPN clients, you can use the same subdomain everywhere:
 
 1. **Pi-hole** → Local DNS → DNS Records: add one A record pointing your domain to the home LAN gateway:
    ```
@@ -396,10 +384,10 @@ docker compose up -d
 
 ## Troubleshooting
 
-### Service unreachable after recreating a `tailscale` sidecar: "stale network namespace"
+### Service unreachable after recreating a service container: "stale network namespace"
 
 **Symptom**: A service (NPM, Plex, Immich, etc.) becomes completely unreachable
-— from LAN, Tailnet, and VPN alike — even though:
+— from LAN, VPN, and local Docker routing alike — even though:
 - The app container shows `healthy` and has been running for a while.
 - Its process is confirmed listening on the right port (e.g. `0.0.0.0:81`),
   and works perfectly via `curl 127.0.0.1:<port>` from inside the container.
@@ -408,50 +396,37 @@ docker compose up -d
   not a timeout — even from other containers on the same Docker network, or
   from the Docker host itself.
 
-**Root cause**: every service here runs a `tailscale-${SERVICE}` sidecar
-container that owns the actual network attachments (the shared `homelab`
-bridge, Tailscale), and the app container (`app-${SERVICE}`) joins
-it via `network_mode: service:tailscale` — sharing its network namespace
-instead of having its own.
+**Root cause**: some multi-container services share a network namespace between the app and the helper container. If you recreate only one of them, the app may keep pointing at an old network namespace that no longer matches the live container.
 
 `network_mode: service:X` binds to whatever container `X` *is* at the moment
-the dependent container is created. If you later recreate the `tailscale`
-sidecar on its own (e.g. `docker compose up -d --force-recreate tailscale`,
-to apply a new `mac_address`, image update, etc.) **without** also recreating
-the app container, Docker creates a brand-new network namespace for the new
-sidecar — but the still-running app container keeps referencing the *old,
-now-orphaned* namespace. It keeps working perfectly on its own loopback
-(`127.0.0.1`), but it's no longer actually attached to any real network
-anyone else can reach.
+the dependent container is created. If you later recreate the helper
+container on its own (for example to apply a new `mac_address`, image update,
+or changed network setup) **without** also recreating the app container,
+Docker creates a brand-new network namespace for the new helper — but the
+still-running app container keeps referencing the *old, now-orphaned*
+namespace. It keeps working on its own loopback (`127.0.0.1`), but it is no
+longer attached to any real network anyone else can reach.
 
 **Diagnosis** — confirm the two containers' network namespaces differ:
 
 ```bash
 docker inspect app-<service> --format '{{.State.Pid}}' | xargs -I{} sudo readlink /proc/{}/ns/net
-docker inspect tailscale-<service> --format '{{.State.Pid}}' | xargs -I{} sudo readlink /proc/{}/ns/net
+docker inspect <helper-container> --format '{{.State.Pid}}' | xargs -I{} sudo readlink /proc/{}/ns/net
 ```
 
 If the two `net:[...]` values differ, this is the bug.
 
 **Fix**: recreate the app container so it re-attaches to the current
-sidecar's namespace:
+network namespace:
 
 ```bash
 ./lab.sh fix-netns <service>
 ```
 
-This checks every container in the service for a stale `network_mode:
-container:X` reference and force-recreates the whole service if any are
-found. You can also run it proactively any time as a health check — it's a
-no-op (just prints "Network namespaces OK") if nothing is stale.
-
-**Prevention**: never target a single container within a multi-container
-service for recreation (e.g. raw `docker compose up -d --force-recreate
-tailscale`). Prefer `./lab.sh restart <service>`, which tears down and
-recreates *all* of the service's containers together, so this can't happen.
-If you do need to touch just the sidecar (as we did to apply a pinned
-`mac_address`), immediately follow up with `./lab.sh fix-netns <service>` (or
-just `./lab.sh restart <service>`).
+This checks every container in the service for stale `network_mode:
+container:X` references and force-recreates the whole service when it finds one.
+Prefer `./lab.sh restart <service>` for routine recovery, so all containers in
+that service are recreated together.
 
 ### VPN clients can't resolve any domain: dnsmasq DNAT points at `127.0.0.1`
 
@@ -638,7 +613,7 @@ The script preserves paths relative to this repository, creates the destination 
 
 - `PIHOLE_WEBPASSWORD` in `pihole/.env`
 - `DB_PASSWORD` in `immich/.env`
-- Tailscale now lives only on the host, so service `.env` files no longer need `TS_AUTHKEY`
+- remote-access VPN now lives only on the host, so service `.env` files no longer need `TS_AUTHKEY`
 - `DUCKDNS_TOKEN`, `WG_EASY_HOST`, and `WG_EASY_ADMIN_PASSWORD` in `wg-easy/.env`
 
 Do **not** commit `.env` files to version control. Add them to `.gitignore`:

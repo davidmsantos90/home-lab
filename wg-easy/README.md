@@ -197,8 +197,8 @@ Why:
 
 **Problem**: Services like NPM need different DNS responses for different client types:
 - LAN clients: resolve to physical IP `<pi-lan-ip>` (direct access)
-- Tailnet clients: resolve to physical IP `<pi-lan-ip>` (routed via Tailscale)
-- VPN clients: need translated IP `<npm-translated-ip>` (only reachable via NETMAP)
+- VPN clients: resolve to physical IP `<pi-lan-ip>` when they are on the same local path, while overlapping clients get the translated address
+- WireGuard clients: need translated IP `<npm-translated-ip>` (only reachable via NETMAP)
 
 **Solution**: all VPN client DNS queries go to the wg0 gateway, which DNATs them
 to dnsmasq/Pi-hole. dnsmasq then rewrites only the local homelab hostname
@@ -242,7 +242,7 @@ See [HOOKS_SETUP.md](./HOOKS_SETUP.md) for complete hook configuration including
 
 ## WireGuard access to other homelab services
 
-From the compose files in this repository, WireGuard clients can reach services outside Tailnet when:
+From the compose files in this repository, WireGuard clients can reach services outside the VPN when:
 - the service is bound on the host (`0.0.0.0:<port>`) or has a reachable LAN IP
 - the relevant subnet/host is inside the client AllowedIPs
 
@@ -257,7 +257,7 @@ With the current stack:
   - Jellyfin: `<vpn-view-of-host>:8096`
   - NPM: `<pi-lan-ip>` (or translated equivalent when overlapping)
 - **Not intended over VPN**
-  - wg-easy UI host bind is `127.0.0.1:51821` (Tailnet/local host only)
+  - wg-easy UI host bind is `127.0.0.1:51821` (local host only)
 
 For overlapping clients, use translated addresses in `WG_TRANSLATED_LAN_SUBNET` (for example `<pi-lan-ip> -> <npm-translated-ip>`).
 

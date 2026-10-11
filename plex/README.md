@@ -1,6 +1,6 @@
 # Plex
 
-Self-hosted media server exposed locally and through Tailnet.
+Self-hosted media server exposed locally and over the home VPN when needed.
 
 ## Dependencies
 

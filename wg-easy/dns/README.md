@@ -309,12 +309,12 @@ nslookup nginx.pimlicoa.duckdns.org
 # Address: 192.168.1.60 (physical address)
 ```
 
-### From Tailnet Client (should NOT be intercepted)
+### From alternate VPN/remote client (should NOT be intercepted)
 ```bash
 nslookup nginx.pimlicoa.duckdns.org
 # Expected:
-# Server: 10.200.0.60 (Pi-hole via Tailscale)
-# Address: 192.168.1.60 (physical address routed via Tailscale)
+# Server: 10.200.0.60 (Pi-hole via the VPN path)
+# Address: 192.168.1.60 (physical address routed via the tunnel)
 ```
 
 ## Adding More Domain Rewrites

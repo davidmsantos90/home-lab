@@ -45,7 +45,7 @@ docker compose up -d
 
 Configure your application to use:
 
-- Host: this machine's LAN IP or Tailscale hostname
+- Host: this machine's LAN IP or remote-access VPN hostname
 - Port: `SERVICEPORT` (default `1080`)
 - Protocol: SOCKS5
 - No authentication required

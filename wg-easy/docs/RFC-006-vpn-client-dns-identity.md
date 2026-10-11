@@ -56,7 +56,7 @@ to those services. This RFC is specifically about DNS.
    server-side interception needed at all for non-matching domains.
    Technically the cleanest option where it's supported (e.g. Linux
    `systemd-resolved` via a `Domains=` directive), but this VPN exists
-   specifically to support devices that **can't** use Tailscale, which in
+   specifically to support devices that **can't** use remote-access VPN, which in
    practice means a mix of platforms — Windows, macOS, iOS, Android — and
    per-domain DNS routing isn't consistently available (or user-configurable
    at all) across that mix. Rejected as the *primary* mechanism, since it

@@ -1,6 +1,6 @@
 # Portainer
 
-Web UI for Docker management, published on local network and Tailnet.
+Web UI for Docker management, published on the local network and over the home VPN when needed.
 
 ## Dependencies
 

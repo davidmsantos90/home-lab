@@ -12,7 +12,7 @@
 
 This RFC defines the long-term remote access strategy for the homelab.
 
-WireGuard is intended to provide secure remote access for environments where Tailscale cannot be installed or executed (for example managed corporate laptops).
+WireGuard is intended to provide secure remote access for environments where remote-access VPN cannot be installed or executed (for example managed corporate laptops).
 
 This document describes the current implementation, the problems discovered during testing, and the target architecture.
 
@@ -35,7 +35,7 @@ Raspberry Pi
     │
 Docker Network (homelab)
     ├── wg-easy
-    ├── Tailscale
+    ├── remote-access VPN
     ├── Nginx Proxy Manager
     ├── Pi-hole
     ├── Deluge
@@ -43,7 +43,7 @@ Docker Network (homelab)
     └── Other services
 ```
 
-WireGuard and Tailscale are deployed as independent Docker services.
+WireGuard and remote-access VPN are deployed as independent Docker services.
 
 Both services communicate through the shared Docker network but **must not share the same network namespace**.
 
@@ -108,7 +108,7 @@ Testing from a mobile hotspot confirmed that the VPN works correctly when the cl
 
 ## ADR-001
 
-Keep Tailscale and WireGuard as independent services.
+Keep remote-access VPN and WireGuard as independent services.
 
 Reason:
 
@@ -156,7 +156,7 @@ The final implementation shall:
 - work with Docker
 - remain compatible with Proxmox
 - require minimal maintenance
-- keep Tailscale fully independent
+- keep remote-access VPN fully independent
 
 ---
 
@@ -165,7 +165,7 @@ The final implementation shall:
 The implementation shall **not**:
 
 - change the LAN subnet
-- replace Tailscale
+- replace remote-access VPN
 - expose additional Internet-facing services
 - require manual routing on client devices
 - introduce unnecessary complexity
@@ -236,8 +236,8 @@ The implementation process produced the following findings:
 - Successful WireGuard handshakes do not guarantee LAN reachability.
 - Overlapping private networks are a client-side routing problem.
 - Testing from a mobile hotspot is an effective way to isolate routing issues.
-- Sharing a Docker network namespace with Tailscale was **not** the cause of the routing issue.
-- Separating Tailscale and WireGuard into independent Docker services remains the preferred architecture.
+- Sharing a Docker network namespace with remote-access VPN was **not** the cause of the routing issue.
+- Separating remote-access VPN and WireGuard into independent Docker services remains the preferred architecture.
 
 ---
 
@@ -261,7 +261,7 @@ When implementing this RFC:
 - Preserve the current Docker structure.
 - Do not modify unrelated services.
 - Prefer Linux-native networking solutions.
-- Keep WireGuard and Tailscale independent.
+- Keep WireGuard and remote-access VPN independent.
 - Minimise operational complexity.
 - Document every architectural decision.
 - Prefer maintainable solutions over clever solutions.

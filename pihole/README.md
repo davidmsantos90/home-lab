@@ -1,6 +1,6 @@
 # Pi-hole
 
-Network-wide DNS sinkhole and ad blocker, exposed locally and on Tailnet via the host.
+Network-wide DNS sinkhole and ad blocker, exposed locally and over the home VPN via the host.
 
 This instance is the **SECONDARY** in a two-instance Pi-hole setup: a
 Proxmox-hosted **PRIMARY** (`<pihole-primary-ip>`) is the source of truth for DNS

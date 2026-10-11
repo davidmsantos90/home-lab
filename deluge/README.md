@@ -33,7 +33,7 @@ connections from native thin-client apps (Deluge GTK/console UI, mobile
 apps, etc.), same as a locally-run instance would.
 
 In the native app, choose "Connect to daemon" / add a host:
-- Host: this machine's LAN IP or Tailscale hostname
+- Host: this machine's LAN IP or remote-access VPN hostname
 - Port: `DAEMON_PORT` (default `58846` — **not** the web UI port)
 
 Note: the daemon's login is separate from the web UI password. The web UI

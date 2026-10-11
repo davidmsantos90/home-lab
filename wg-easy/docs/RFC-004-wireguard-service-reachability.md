@@ -6,7 +6,7 @@ Accepted
 
 ## Question
 
-Which homelab services are reachable while connected through WireGuard (outside Tailnet)?
+Which homelab services are reachable while connected through WireGuard outside the local LAN?
 
 ## Answer
 
