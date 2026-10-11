@@ -11,6 +11,8 @@ services:
     volumes:
       - ${HOME_LAB_DIR:-.}/config:/config
       - ${HOME_LAB_DIR:-.}/datastore:/datastore
+      - ${HOME_LAB_DIR:-.}/etc-proxmox-backup:/etc/proxmox-backup
+      - ${HOME_LAB_DIR:-.}/var-proxmox-backup:/var/lib/proxmox-backup
 
     tmpfs:
       - /run

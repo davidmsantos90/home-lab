@@ -38,12 +38,14 @@ HOME_LAB_DIR=/home/pi/.home-lab/proxmox-backup
 
 ## Data layout
 
-The Compose file mounts the following persistent paths:
+The Compose file mounts the following persistent paths under `${HOME_LAB_DIR}`:
 
-- `${HOME_LAB_DIR}/config` for PBS configuration
+- `${HOME_LAB_DIR}/config` for the container's main config area
 - `${HOME_LAB_DIR}/datastore` for PBS backups
+- `${HOME_LAB_DIR}/etc/proxmox-backup` for the PBS runtime config files
+- `${HOME_LAB_DIR}/var/lib/proxmox-backup` for the PBS state database and runtime metadata
 
-These must remain on the host filesystem and survive container recreation.
+These must remain on the host filesystem and survive container recreation; they should not be left as anonymous Docker volumes.
 
 ## Startup
 
