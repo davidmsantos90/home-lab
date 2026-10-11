@@ -24,6 +24,7 @@ This project is intended to follow the repository's existing service conventions
 
 Copy [`.env.example`](.env.example) to `.env` and set:
 
+- `PASSWORD` (required; sets the root web UI password)
 - `TZ`
 - `SERVICEPORT` (default `8007`)
 - `IMAGE_URL` (pin to a stable upstream tag for production use)
@@ -49,7 +50,7 @@ These must remain on the host filesystem and survive container recreation.
 ```bash
 cd proxmox-backup
 cp .env.example .env
-# edit .env with your TZ / HOME_LAB_DIR / image tag
+# edit .env with your PASSWORD / TZ / HOME_LAB_DIR / image tag
 docker compose up -d
 ```
 
