@@ -1,0 +1,27 @@
+services:
+  # Proxmox Backup Server
+  application:
+    image: ${IMAGE_URL:-dockurr/proxmox-backup:latest}
+    container_name: app-${SERVICE}
+
+    environment:
+      - TZ=${TZ}
+
+    volumes:
+      - ${HOME_LAB_DIR:-.}/config:/config
+      - ${HOME_LAB_DIR:-.}/datastore:/datastore
+
+    ports:
+      - "0.0.0.0:${SERVICEPORT}:8007/tcp"
+
+    networks:
+      default: {}
+      homelab: {}
+
+    restart: unless-stopped
+
+networks:
+  default:
+    name: proxmox-backup_internal
+  homelab:
+    external: true
