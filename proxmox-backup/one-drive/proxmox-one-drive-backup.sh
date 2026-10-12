@@ -85,7 +85,7 @@ if [[ -n "${BACKUP_GUESTS}" ]]; then
     selected_guests+=("${guest_id}")
   done
 else
-  mapfile -t all_guests < <({ qm list 2>/dev/null || true; pct list 2>/dev/null || true; } | awk 'NR>1 {print $1}' | sort -u)
+  mapfile -t all_guests < <({ qm list 2>/dev/null || true; pct list 2>/dev/null || true; } | awk 'NR>1 && $1 ~ /^[0-9]+$/ {print $1}' | sort -u)
   for guest_id in "${all_guests[@]}"; do
     if [[ -n "${EXCLUDED_GUESTS}" ]] && [[ " ${EXCLUDED_GUESTS} " == *" ${guest_id} "* ]]; then
       log "Skipping excluded guest ${guest_id}"
@@ -113,14 +113,21 @@ for guest_id in "${selected_guests[@]}"; do
     fail "vzdump failed for guest ${guest_id}"
   fi
 
-  mapfile -t created_archives < <(find "${guest_dir}" -maxdepth 1 -type f ! -name 'vzdump.log' -print | sort)
+  mapfile -t created_archives < <(find "${guest_dir}" -maxdepth 1 -type f ! -name 'vzdump.log' ! -name '*.log' -print | sort)
   if [[ ${#created_archives[@]} -eq 0 ]]; then
     fail "vzdump did not produce an archive for guest ${guest_id}"
   fi
 
-  archive_path="${created_archives[0]}"
-  if ! zstd -t "${archive_path}" >/dev/null 2>&1; then
-    fail "archive validation failed for guest ${guest_id}: ${archive_path}"
+  archive_path=""
+  for candidate in "${created_archives[@]}"; do
+    if zstd -t "${candidate}" >/dev/null 2>&1; then
+      archive_path="${candidate}"
+      break
+    fi
+  done
+
+  if [[ -z "${archive_path}" ]]; then
+    fail "archive validation failed for guest ${guest_id}: no valid compressed archive found in ${guest_dir}"
   fi
 
   log "Guest ${guest_id} archive created: ${archive_path}"
