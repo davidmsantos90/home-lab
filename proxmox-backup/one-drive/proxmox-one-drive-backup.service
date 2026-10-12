@@ -1,0 +1,19 @@
+[Unit]
+Description=Proxmox OneDrive backup run
+Documentation=https://github.com/davidmsantos90/home-lab/blob/master/docs/features/proxmox-one-drive-backups.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/var/lib/vz
+Environment=TZ=Europe/Lisbon
+ExecStart=/usr/local/bin/proxmox-one-drive-backup.sh
+SyslogIdentifier=proxmox-one-drive-backup
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
