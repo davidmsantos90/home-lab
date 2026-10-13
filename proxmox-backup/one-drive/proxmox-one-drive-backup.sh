@@ -197,9 +197,10 @@ cp "${manifest_path}" "${verify_dir}/manifest.json"
 
 # Verify only the uploaded payload using rclone cryptcheck.
 # The staging directory contains unuploaded per-guest logs, so they must not be part of the comparison.
+# rclone expects the plain local source first and the encrypted remote as the destination.
 log "Running rclone cryptcheck for the uploaded backup set"
 log "Phase 5/5: verifying upload and applying retention"
-if ! rclone cryptcheck "${REMOTE_DIR}" "${verify_dir}" --config "${RCLONE_CONFIG}" >/dev/null 2>&1; then
+if ! rclone cryptcheck "${verify_dir}" "${REMOTE_DIR}" --config "${RCLONE_CONFIG}" >/dev/null 2>&1; then
   fail "cryptcheck verification failed for backup set ${REMOTE_DIR}"
 fi
 
