@@ -3,10 +3,27 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "${SCRIPT_DIR}/.env" ]]; then
-  # shellcheck disable=SC1091
-  source "${SCRIPT_DIR}/.env"
+ENV_FILE="${SCRIPT_DIR}/.env"
+if [[ ! -f "${ENV_FILE}" && -f "/etc/proxmox-onedrive-backup/.env" ]]; then
+  ENV_FILE="/etc/proxmox-onedrive-backup/.env"
 fi
+
+# Preserve any runtime overrides passed to the command line, since they should take precedence.
+declare -A RUNTIME_OVERRIDES=()
+for var_name in TIMEZONE RCLONE_CONFIG RCLONE_REMOTE REMOTE_PREFIX STAGING_DIR LOG_DIR LOCK_FILE BACKUP_GUESTS EXCLUDED_GUESTS; do
+  RUNTIME_OVERRIDES["${var_name}"]="${!var_name:-}"
+done
+
+if [[ -f "${ENV_FILE}" ]]; then
+  # shellcheck disable=SC1091
+  source "${ENV_FILE}"
+fi
+
+for var_name in TIMEZONE RCLONE_CONFIG RCLONE_REMOTE REMOTE_PREFIX STAGING_DIR LOG_DIR LOCK_FILE BACKUP_GUESTS EXCLUDED_GUESTS; do
+  if [[ -n "${RUNTIME_OVERRIDES[${var_name}]:-}" ]]; then
+    printf -v "${var_name}" '%s' "${RUNTIME_OVERRIDES[${var_name}]}"
+  fi
+done
 
 export TZ="${TIMEZONE:-Europe/Lisbon}"
 : "${RCLONE_CONFIG:=/root/.config/rclone/rclone.conf}"
