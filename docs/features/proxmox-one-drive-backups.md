@@ -190,7 +190,60 @@ Do not remove unknown files, manually created test files, or unrelated logs.
 
 Do not change the staging directory permissions without first establishing why a change is necessary.
 
-## 11. Logging and Error Handling
+## 11. Notifications
+
+The backup workflow remains unchanged: the script still performs guest backup creation, upload, verification and retention exactly as before. The notification layer is added at the end of the run and attempts to report a single final result without altering the backup status itself.
+
+### Email notifications
+
+Use the host's existing mail delivery mechanism when available, preferring the configured system mail stack over introducing a new SMTP service. The script checks for `mail` or `sendmail` and logs a clear warning instead of failing the backup if neither is installed or configured.
+
+Required settings:
+
+- `NOTIFY_EMAIL_TO` — recipient address, configured outside the Git repository when possible.
+- Mail is not a required prerequisite for the backup itself. If no mail agent is available, the backup still runs normally and only the notification is skipped.
+
+The notification summary includes only:
+
+- status
+- hostname
+- date/time
+- run identifier
+- guest count
+- destination path
+- log file path
+- phase or concise error summary
+
+It does not include credentials, full logs, or other sensitive configuration.
+
+### Notification behavior
+
+- Success notifications are sent only after the backup set has completed upload, verification and retention.
+- Failure notifications are sent when the script exits non-zero at any point, including early validation errors and trap-based exits.
+- Email delivery is attempted independently and a delivery failure is logged without altering the backup exit result.
+- The script sends exactly one final result per run and does not send a success notification after a failure.
+
+### Mail relay and secure notification file
+
+The notification config is intentionally a root-owned system file, not a Git-tracked project dotfile. The script reads a file named `notifications.env` from `/etc/proxmox-onedrive-backup` by default, because it is loaded explicitly via `NOTIFY_CONFIG_FILE` and not discovered by filename convention.
+
+This is the recommended layout:
+
+```bash
+sudo install -d -m 0755 /etc/proxmox-onedrive-backup
+sudo tee /etc/proxmox-onedrive-backup/notifications.env >/dev/null <<'EOF'
+NOTIFY_EMAIL_TO="admin@example.com"
+EOF
+sudo chmod 0600 /etc/proxmox-onedrive-backup/notifications.env
+```
+
+This file is not expected to start with a dot because it is not a repo-local `.env` file; it is a host-level configuration artifact. For a copyable template in the repository, use the example file at [proxmox-backup/one-drive/notifications.env.example](../proxmox-backup/one-drive/notifications.env.example).
+
+The mail transport itself should be provided by the Proxmox host's local mail stack, typically `msmtp` configured to send via an SMTP relay. The backup script itself only needs a valid `NOTIFY_EMAIL_TO` value; mail delivery is handled by the host mail agent, not by the backup script.
+
+The script will read this file automatically when it exists, and runtime environment overrides still take precedence.
+
+## 12. Logging and Error Handling
 
 Write local logs to:
 
