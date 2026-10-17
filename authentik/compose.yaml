@@ -1,0 +1,138 @@
+services:
+  # Authentik database
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: app-${SERVICE}-db
+    
+    environment:
+      POSTGRES_DB: ${AUTHENTIK_POSTGRES_DB:-authentik}
+      POSTGRES_USER: ${AUTHENTIK_POSTGRES_USER:-authentik}
+      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+    
+    volumes:
+      - ${AUTHENTIK_POSTGRES_PATH:-${HOME_LAB_DIR:-.}/postgresql-data}:/var/lib/postgresql/data
+    
+    networks:
+      default: {}
+      homelab: {}
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTHENTIK_POSTGRES_USER:-authentik} -d ${AUTHENTIK_POSTGRES_DB:-authentik}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    
+    restart: unless-stopped
+
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: app-${SERVICE}-redis
+    command: --save 60 1 --loglevel warning
+    
+    volumes:
+      - ${AUTHENTIK_REDIS_PATH:-${HOME_LAB_DIR:-.}/redis-data}:/data
+    
+    networks:
+      default: {}
+      homelab: {}
+    
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    
+    restart: unless-stopped
+
+  server:
+    image: ${IMAGE_URL}
+    container_name: app-${SERVICE}-server
+    command: server
+    environment:
+      TZ: ${TZ}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRES_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}
+      AUTHENTIK_HOST: ${AUTHENTIK_HOST}
+      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-443}
+      AUTHENTIK_INSECURE: ${AUTHENTIK_INSECURE:-false}
+      AUTHENTIK_LISTEN__HTTP: 0.0.0.0:9000
+      AUTHENTIK_LISTEN__HTTPS: 0.0.0.0:9443
+      AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST:-}
+      AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT:-587}
+      AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL__USERNAME:-}
+      AUTHENTIK_EMAIL__PASSWORD: ${AUTHENTIK_EMAIL__PASSWORD:-}
+      AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS:-true}
+      AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL:-false}
+      AUTHENTIK_EMAIL__TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT:-10}
+      AUTHENTIK_EMAIL__FROM: ${AUTHENTIK_EMAIL__FROM:-authentik@localhost}
+    volumes:
+      - ${AUTHENTIK_DATA_PATH:-${HOME_LAB_DIR:-.}/data}:/data
+      - ${AUTHENTIK_CUSTOM_TEMPLATES_PATH:-${HOME_LAB_DIR:-.}/custom-templates}:/custom-templates
+    ports:
+      - "0.0.0.0:${SERVICEPORT}:9000/tcp"
+      - "0.0.0.0:${AUTHENTIK_HTTPS_PORT:-9443}:9443/tcp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      default: {}
+      homelab: {}
+    restart: unless-stopped
+
+  worker:
+    image: ${IMAGE_URL}
+    container_name: app-${SERVICE}-worker
+    command: worker
+    user: root
+    
+    environment:
+      TZ: ${TZ}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgres
+      AUTHENTIK_POSTGRESQL__NAME: ${AUTHENTIK_POSTGRES_DB:-authentik}
+      AUTHENTIK_POSTGRESQL__USER: ${AUTHENTIK_POSTGRES_USER:-authentik}
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: ${AUTHENTIK_ERROR_REPORTING__ENABLED:-false}
+      AUTHENTIK_HOST: ${AUTHENTIK_HOST}
+      AUTHENTIK_PORT: ${AUTHENTIK_PORT:-443}
+      AUTHENTIK_INSECURE: ${AUTHENTIK_INSECURE:-false}
+      AUTHENTIK_EMAIL__HOST: ${AUTHENTIK_EMAIL__HOST:-}
+      AUTHENTIK_EMAIL__PORT: ${AUTHENTIK_EMAIL__PORT:-587}
+      AUTHENTIK_EMAIL__USERNAME: ${AUTHENTIK_EMAIL__USERNAME:-}
+      AUTHENTIK_EMAIL__PASSWORD: ${AUTHENTIK_EMAIL__PASSWORD:-}
+      AUTHENTIK_EMAIL__USE_TLS: ${AUTHENTIK_EMAIL__USE_TLS:-true}
+      AUTHENTIK_EMAIL__USE_SSL: ${AUTHENTIK_EMAIL__USE_SSL:-false}
+      AUTHENTIK_EMAIL__TIMEOUT: ${AUTHENTIK_EMAIL__TIMEOUT:-10}
+      AUTHENTIK_EMAIL__FROM: ${AUTHENTIK_EMAIL__FROM:-authentik@localhost}
+    
+    volumes:
+      - ${AUTHENTIK_DATA_PATH:-${HOME_LAB_DIR:-.}/data}:/data
+      - ${AUTHENTIK_CUSTOM_TEMPLATES_PATH:-${HOME_LAB_DIR:-.}/custom-templates}:/custom-templates
+      - /var/run/docker.sock:/var/run/docker.sock
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    
+    networks:
+      default: {}
+      homelab: {}
+    
+    restart: unless-stopped
+
+networks:
+  default:
+    name: authentik_internal
+  homelab:
+    external: true

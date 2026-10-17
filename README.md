@@ -21,6 +21,10 @@ home-lab/
 ├── portainer/
 │   ├── compose.yaml
 │   └── .env
+├── authentik/
+│   ├── compose.yaml
+│   ├── .env.example
+│   └── README.md
 ├── app-shell/
 │   ├── compose.yaml
 │   └── .env.example
@@ -50,6 +54,7 @@ home-lab/
 | **Deluge** | `8112` (UI), `6881` (torrent) | `https://deluge.pimlicoa.duckdns.org` |
 | **Plex** | `32400` | `https://plex.pimlicoa.duckdns.org` |
 | **Jellyfin** | `8096` | `https://jellyfin.pimlicoa.duckdns.org` |
+| **Authentik** | `9000` | `https://authentik.pimlicoa.duckdns.org` |
 | **Proxmox Backup Server** | `8007` | `http://<pi-lan-ip>:8007` |
 | **Nginx Proxy Manager** | `80`/`443`/`81` (host-published) | `http://<pi-lan-ip>:81` |
 | **App Shell** | `3000` | `http://<host-ip>:3000` |
