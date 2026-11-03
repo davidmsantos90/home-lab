@@ -220,6 +220,30 @@ def api_request(opener: urllib.request.OpenerDirector, api_url: str, method: str
         return json.loads(raw)
 
 
+def login_with_wg_easy_compat(
+    opener: urllib.request.OpenerDirector,
+    api_url: str,
+    username: str,
+    password: str,
+    remember: bool = True,
+) -> bool:
+    payload = {"username": username, "password": password, "remember": remember}
+    last_404_error: urllib.error.HTTPError | None = None
+
+    for route in ("/api/auth/password", "/api/session"):
+        try:
+            api_request(opener, api_url, "POST", route, payload)
+            return True
+        except urllib.error.HTTPError as exc:
+            if exc.code in (404, 405):
+                last_404_error = exc
+                continue
+            raise
+    if last_404_error is not None:
+        raise last_404_error
+    raise RuntimeError("No wg-easy authentication route returned a compatible response")
+
+
 def auth_and_client_list() -> list[dict]:
     api_url = setting("WG_EASY_API_URL", "http://localhost:51821")
     username = setting("WG_EASY_ADMIN_USERNAME")
@@ -228,13 +252,7 @@ def auth_and_client_list() -> list[dict]:
         raise SystemExit("WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD are required")
 
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
-    api_request(
-        opener,
-        api_url,
-        "POST",
-        "/api/session",
-        {"username": username, "password": password, "remember": True},
-    )
+    login_with_wg_easy_compat(opener, api_url, username, password, remember=True)
 
     clients = api_request(opener, api_url, "GET", "/api/client")
     if isinstance(clients, dict):

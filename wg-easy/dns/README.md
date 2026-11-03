@@ -275,7 +275,15 @@ available" since there's no service literally named that.
    bash ../hooks/bootstrap-hooks.sh
    ```
 
-3. If still fails, manually test authentication:
+3. If still fails, manually test authentication against the current wg-easy login route:
+   ```bash
+   curl -X POST \
+     -H "Content-Type: application/json" \
+     --data '{"username":"admin","password":"admin","remember":true}' \
+     http://localhost:51821/api/auth/password
+   ```
+
+   On older deployments, the legacy endpoint remains available as a fallback:
    ```bash
    curl -X POST \
      -H "Content-Type: application/json" \

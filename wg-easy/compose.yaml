@@ -10,11 +10,13 @@ services:
     restart: unless-stopped
 
   wg-easy:
-    image: ghcr.io/wg-easy/wg-easy:15.3
+    image: ${WG_EASY_IMAGE:-ghcr.io/wg-easy/wg-easy:latest}
     container_name: wg-easy
     environment:
       INSECURE: "true"
       DISABLE_IPV6: "true"
+      WG_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
+      WG_PORT: "51820"
       INIT_ENABLED: "true"
       INIT_USERNAME: ${WG_EASY_ADMIN_USERNAME}
       INIT_PASSWORD: ${WG_EASY_ADMIN_PASSWORD}
@@ -41,8 +43,8 @@ services:
       net.ipv4.ip_forward: "1"
       net.ipv4.conf.all.src_valid_mark: "1"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:51821"]
-      interval: 1m
+      test: ["CMD-SHELL", "wget -S --spider -T 10 -t 1 http://127.0.0.1:51821 2>&1 | grep -E 'HTTP/.* (2[0-9]{2}|3[0-9]{2}|401|403)' >/dev/null || exit 1"]
+      interval: 30s
       timeout: 15s
       retries: 5
       start_period: 40s
@@ -56,8 +58,7 @@ services:
     image: curlimages/curl:8.9.1
     container_name: wg-easy-hooks-bootstrap
     depends_on:
-      wg-easy:
-        condition: service_healthy
+      - wg-easy
     environment:
       WG_EASY_API_URL: http://wg-easy:51821
       WG_EASY_ADMIN_USERNAME: ${WG_EASY_ADMIN_USERNAME}

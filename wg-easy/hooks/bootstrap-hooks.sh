@@ -61,11 +61,64 @@ if [ "$i" -ge 60 ]; then
 fi
 
 echo "Authenticating with wg-easy..."
-curl -fsS -c "$COOKIES_FILE" \
-  -X POST \
-  -H "Content-Type: application/json" \
-  --data "{\"username\":\"$WG_EASY_ADMIN_USERNAME\",\"password\":\"$WG_EASY_ADMIN_PASSWORD\",\"remember\":true}" \
-  "${WG_EASY_API_URL}/api/session" >/dev/null
+login_with_wg_easy() {
+  payload="{\"username\":\"$WG_EASY_ADMIN_USERNAME\",\"password\":\"$WG_EASY_ADMIN_PASSWORD\",\"remember\":true}"
+  status="$(curl -sS -o /tmp/wg-easy-auth-body -w "%{http_code}" \
+    -c "$COOKIES_FILE" \
+    -X POST \
+    -H "Content-Type: application/json" \
+    --data "$payload" \
+    "${WG_EASY_API_URL}/api/auth/password" 2>/tmp/wg-easy-auth-error || true)"
+
+  case "$status" in
+    200|201|204)
+      return 0
+      ;;
+    404|405)
+      echo "Password login endpoint unavailable; falling back to legacy /api/session" >&2
+      status="$(curl -sS -o /tmp/wg-easy-auth-body -w "%{http_code}" \
+        -c "$COOKIES_FILE" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        --data "$payload" \
+        "${WG_EASY_API_URL}/api/session" 2>/tmp/wg-easy-auth-error || true)"
+      case "$status" in
+        200|201|204)
+          return 0
+          ;;
+        401|403)
+          echo "Authentication rejected by wg-easy. Check your WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD" >&2
+          return 1
+          ;;
+        "")
+          echo "Authentication failed: network error or timeout while contacting wg-easy" >&2
+          return 1
+          ;;
+        *)
+          echo "Authentication failed with HTTP ${status} while contacting wg-easy" >&2
+          return 1
+          ;;
+      esac
+      ;;
+    401|403)
+      echo "Authentication rejected by wg-easy. Check your WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD" >&2
+      return 1
+      ;;
+    "")
+      echo "Authentication failed: network error or timeout while contacting wg-easy" >&2
+      return 1
+      ;;
+    *)
+      echo "Authentication failed with HTTP ${status} while contacting wg-easy" >&2
+      return 1
+      ;;
+  esac
+}
+
+if ! login_with_wg_easy; then
+  rm -f "$COOKIES_FILE"
+  exit 1
+fi
 
 # Verify authentication worked
 if ! curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null 2>&1; then
