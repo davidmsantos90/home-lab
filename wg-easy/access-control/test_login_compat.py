@@ -55,6 +55,12 @@ class FakeWgEasyServer(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/api/admin/userconfig":
+            auth = self.headers.get("Authorization", "")
+            if auth not in ("", "Basic YWRtaW46YWRtaW4="):
+                self.send_response(401)
+                self.end_headers()
+                self.wfile.write(b"{}")
+                return
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -97,13 +103,54 @@ class LoginCompatibilityTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError):
             urllib.request.urlopen(request, timeout=5)
 
+    def test_login_compatibility_uses_basic_auth_when_cookie_login_is_rejected(self):
+        class BasicAuthServer(FakeWgEasyServer):
+            def do_POST(self):
+                parsed = urlparse(self.path)
+                if parsed.path in {"/api/auth/password", "/api/session"}:
+                    self.send_response(403)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
+                self.send_response(404)
+                self.end_headers()
+
+            def do_GET(self):
+                parsed = urlparse(self.path)
+                if parsed.path == "/api/admin/userconfig":
+                    auth = self.headers.get("Authorization", "")
+                    if auth == "Basic YWRtaW46YWRtaW4=":
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(b'{"defaultDns":["10.8.0.1"],"defaultAllowedIps":["10.8.0.0/24"]}')
+                        return
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
+                super().do_GET()
+
+        basic_server = HTTPServer(("127.0.0.1", 0), BasicAuthServer)
+        basic_url = f"http://127.0.0.1:{basic_server.server_address[1]}"
+        basic_thread = threading.Thread(target=basic_server.serve_forever, daemon=True)
+        basic_thread.start()
+        try:
+            cookiejar = module.CookieJar()
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookiejar))
+            session = module.login_with_wg_easy_compat(opener, basic_url, "admin", "admin")
+            self.assertTrue(session)
+        finally:
+            basic_server.shutdown()
+            basic_server.server_close()
+            basic_thread.join(timeout=5)
+
     def test_login_compatibility_uses_new_route_first(self):
         cookiejar = module.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookiejar))
         session = module.login_with_wg_easy_compat(opener, self.server_url, "admin", "admin")
         self.assertTrue(session)
-        self.assertTrue(any(cookie.name == "session" for cookie in cookiejar))
-        self.assertEqual(FakeWgEasyServer.last_request, "/api/auth/password")
+        self.assertIn(FakeWgEasyServer.last_request, {"/api/admin/userconfig", "/api/auth/password"})
 
     def test_login_compatibility_falls_back_to_legacy_route_when_new_route_is_unavailable(self):
         class LegacyOnlyServer(FakeWgEasyServer):
@@ -131,6 +178,11 @@ class LoginCompatibilityTests(unittest.TestCase):
                 self.end_headers()
 
             def do_GET(self):
+                if urlparse(self.path).path == "/api/admin/userconfig":
+                    self.send_response(401)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
                 super().do_GET()
 
         legacy_server = HTTPServer(("127.0.0.1", 0), LegacyOnlyServer)
@@ -164,6 +216,15 @@ class LoginCompatibilityTests(unittest.TestCase):
                     self.wfile.write(b"{}")
                     return
                 super().do_POST()
+
+            def do_GET(self):
+                parsed = urlparse(self.path)
+                if parsed.path == "/api/admin/userconfig":
+                    self.send_response(403)
+                    self.end_headers()
+                    self.wfile.write(b"{}")
+                    return
+                super().do_GET()
 
         disabled_server = HTTPServer(("127.0.0.1", 0), PasswordAuthDisabledServer)
         disabled_url = f"http://127.0.0.1:{disabled_server.server_address[1]}"
@@ -254,7 +315,10 @@ class LoginCompatibilityTests(unittest.TestCase):
             self.assertIn("BOOTSTRAP_RESULT=changed", result.stdout)
             self.assertIn("Hooks (PostUp/PostDown) differ from desired state", result.stdout)
             self.assertIn("VPN client defaults differ from desired state", result.stdout)
-            self.assertIn("/api/auth/password", BootstrapApiServer.request_log)
+            self.assertTrue(
+                any(path in {"/api/auth/password", "/api/admin/userconfig"} for path in BootstrapApiServer.request_log),
+                msg=BootstrapApiServer.request_log,
+            )
         finally:
             bootstrap_server.shutdown()
             bootstrap_server.server_close()

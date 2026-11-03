@@ -12,6 +12,7 @@ By default the script performs a dry run. Pass --apply to mutate rules.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import ipaddress
 import json
@@ -200,12 +201,26 @@ def normalize_policy_rules(rules: list) -> list[dict]:
     return normalized_rules
 
 
-def api_request(opener: urllib.request.OpenerDirector, api_url: str, method: str, path: str, payload: dict | None = None):
+def basic_auth_header(username: str, password: str) -> str:
+    encoded = base64.b64encode(f"{username}:{password}".encode("utf-8")).decode("ascii")
+    return f"Basic {encoded}"
+
+
+def api_request(
+    opener: urllib.request.OpenerDirector,
+    api_url: str,
+    method: str,
+    path: str,
+    payload: dict | None = None,
+    basic_auth: tuple[str, str] | None = None,
+):
     data = None
     headers = {}
     if payload is not None:
         data = json.dumps(payload).encode("utf-8")
         headers["Content-Type"] = "application/json"
+    if basic_auth is not None:
+        headers["Authorization"] = basic_auth_header(*basic_auth)
 
     request = urllib.request.Request(
         f"{api_url}{path}",
@@ -228,7 +243,15 @@ def login_with_wg_easy_compat(
     remember: bool = True,
 ) -> bool:
     payload = {"username": username, "password": password, "remember": remember}
-    last_404_error: urllib.error.HTTPError | None = None
+    last_error: urllib.error.HTTPError | None = None
+
+    try:
+        api_request(opener, api_url, "GET", "/api/admin/userconfig", basic_auth=(username, password))
+        return True
+    except urllib.error.HTTPError as exc:
+        last_error = exc
+        if exc.code not in (401, 403):
+            raise
 
     for route in ("/api/auth/password", "/api/session"):
         try:
@@ -236,11 +259,12 @@ def login_with_wg_easy_compat(
             return True
         except urllib.error.HTTPError as exc:
             if exc.code in (404, 405):
-                last_404_error = exc
                 continue
+            if exc.code in (401, 403) and last_error is not None and last_error.code in (401, 403):
+                raise
             raise
-    if last_404_error is not None:
-        raise last_404_error
+    if last_error is not None:
+        raise last_error
     raise RuntimeError("No wg-easy authentication route returned a compatible response")
 
 
@@ -254,7 +278,7 @@ def auth_and_client_list() -> list[dict]:
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
     login_with_wg_easy_compat(opener, api_url, username, password, remember=True)
 
-    clients = api_request(opener, api_url, "GET", "/api/client")
+    clients = api_request(opener, api_url, "GET", "/api/client", basic_auth=(username, password))
     if isinstance(clients, dict):
         for key in ("clients", "data", "items"):
             if key in clients and isinstance(clients[key], list):

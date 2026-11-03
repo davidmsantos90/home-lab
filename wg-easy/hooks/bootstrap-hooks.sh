@@ -63,6 +63,16 @@ fi
 echo "Authenticating with wg-easy..."
 login_with_wg_easy() {
   payload="{\"username\":\"$WG_EASY_ADMIN_USERNAME\",\"password\":\"$WG_EASY_ADMIN_PASSWORD\",\"remember\":true}"
+
+  status="$(curl -sS -o /tmp/wg-easy-auth-body -w "%{http_code}" \
+    -u "${WG_EASY_ADMIN_USERNAME}:${WG_EASY_ADMIN_PASSWORD}" \
+    "${WG_EASY_API_URL}/api/admin/userconfig" 2>/tmp/wg-easy-auth-error || true)"
+  case "$status" in
+    200|201|204)
+      return 0
+      ;;
+  esac
+
   status="$(curl -sS -o /tmp/wg-easy-auth-body -w "%{http_code}" \
     -c "$COOKIES_FILE" \
     -X POST \
@@ -120,8 +130,11 @@ if ! login_with_wg_easy; then
   exit 1
 fi
 
-# Verify authentication worked
-if ! curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null 2>&1; then
+# Verify authentication worked.
+# Prefer the same Basic Auth path for the admin API when it succeeds, and fall
+# back to the cookie jar otherwise; this keeps automation working even when the
+# app is served over HTTPS and Secure cookies are in play.
+if ! curl -fsS -u "${WG_EASY_ADMIN_USERNAME}:${WG_EASY_ADMIN_PASSWORD}" -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig" >/dev/null 2>&1; then
   echo "Authentication failed. Check your WG_EASY_ADMIN_USERNAME and WG_EASY_ADMIN_PASSWORD" >&2
   rm -f "$COOKIES_FILE"
   exit 1
@@ -195,13 +208,14 @@ EOF
 # for no reason. Substring match (not full JSON equality) is intentional: it's
 # resilient to extra fields/ordering in the GET response, and both sides
 # use the same simple backslash/quote JSON-escaping for this content.
-CURRENT_HOOKS="$(curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/hooks")"
+CURRENT_HOOKS="$(curl -fsS -u "${WG_EASY_ADMIN_USERNAME}:${WG_EASY_ADMIN_PASSWORD}" -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/hooks")"
 HOOKS_CHANGED=false
 if ! printf '%s' "$CURRENT_HOOKS" | grep -qF "\"postUp\":\"${POST_UP_JSON}\"" \
   || ! printf '%s' "$CURRENT_HOOKS" | grep -qF "\"postDown\":\"${POST_DOWN_JSON}\""; then
   HOOKS_CHANGED=true
   echo "Hooks (PostUp/PostDown) differ from desired state — updating..."
-  curl -fsS -b "$COOKIES_FILE" \
+  curl -fsS -u "${WG_EASY_ADMIN_USERNAME}:${WG_EASY_ADMIN_PASSWORD}" \
+    -b "$COOKIES_FILE" \
     -X POST \
     -H "Content-Type: application/json" \
     --data "$PAYLOAD" \
@@ -210,7 +224,7 @@ else
   echo "Hooks (PostUp/PostDown) already up to date — skipping"
 fi
 
-USERCONFIG="$(curl -fsS -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig")"
+USERCONFIG="$(curl -fsS -u "${WG_EASY_ADMIN_USERNAME}:${WG_EASY_ADMIN_PASSWORD}" -b "$COOKIES_FILE" "${WG_EASY_API_URL}/api/admin/userconfig")"
 
 # Build a JSON array from a comma-separated list (used for both
 # WG_VPN_ALLOWED_IPS and WG_VPN_DNS, which may each hold multiple entries).
@@ -248,7 +262,8 @@ USERCONFIG_CHANGED=false
 if [ "$UPDATED_USERCONFIG" != "$USERCONFIG" ]; then
   USERCONFIG_CHANGED=true
   echo "VPN client defaults differ from desired state — updating..."
-  curl -fsS -b "$COOKIES_FILE" \
+  curl -fsS -u "${WG_EASY_ADMIN_USERNAME}:${WG_EASY_ADMIN_PASSWORD}" \
+    -b "$COOKIES_FILE" \
     -X POST \
     -H "Content-Type: application/json" \
     --data "$UPDATED_USERCONFIG" \

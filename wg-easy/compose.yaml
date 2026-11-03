@@ -13,8 +13,17 @@ services:
     image: ${WG_EASY_IMAGE:-ghcr.io/wg-easy/wg-easy:v15.5.0}
     container_name: wg-easy
     environment:
-      INSECURE: "true"
+      INSECURE: ${INSECURE:-false}
+      DISABLE_PASSWORD_AUTH: ${DISABLE_PASSWORD_AUTH:-false}
       DISABLE_IPV6: "true"
+      OAUTH_PROVIDERS: ${OAUTH_PROVIDERS:-}
+      OAUTH_OIDC_NAME: ${OAUTH_OIDC_NAME:-}
+      OAUTH_OIDC_SERVER: ${OAUTH_OIDC_SERVER:-}
+      OAUTH_OIDC_CLIENT_ID: ${OAUTH_OIDC_CLIENT_ID:-}
+      OAUTH_OIDC_CLIENT_SECRET: ${OAUTH_OIDC_CLIENT_SECRET:-}
+      OAUTH_AUTO_REGISTER: ${OAUTH_AUTO_REGISTER:-false}
+      OAUTH_AUTO_LAUNCH: ${OAUTH_AUTO_LAUNCH:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       WG_HOST: ${WG_EASY_HOST:-pimlicoa.duckdns.org}
       WG_PORT: "51820"
       INIT_ENABLED: "true"
