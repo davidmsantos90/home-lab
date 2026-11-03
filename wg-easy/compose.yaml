@@ -10,7 +10,7 @@ services:
     restart: unless-stopped
 
   wg-easy:
-    image: ${WG_EASY_IMAGE:-ghcr.io/wg-easy/wg-easy:latest}
+    image: ${WG_EASY_IMAGE:-ghcr.io/wg-easy/wg-easy:v15.5.0}
     container_name: wg-easy
     environment:
       INSECURE: "true"
